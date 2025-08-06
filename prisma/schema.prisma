@@ -1,0 +1,101 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model products {
+  id                 String               @id @default(uuid())
+  model              String?
+  major              String?
+  minor              String?
+  brand              String?
+  data               Json
+  created_at         DateTime             @default(now())
+  type               String?
+  features           String[]
+  width              String?
+  fuelType           String[]
+  configuration      String[]
+  productType        String[]
+  slug               String?              @unique
+  popularity         Int                  @default(0)
+  category           String?
+  closeout_inventory closeout_inventory[]
+}
+
+model closeout_inventory {
+  id           String   @id @default(uuid())
+  productId    String
+  modelNumber  String
+  acumaticaSku String   @unique
+  price        Decimal?
+  quantity     Int      @default(0)
+  lastSyncedAt DateTime @default(now())
+  product      products @relation(fields: [productId], references: [id])
+
+  @@index([productId])
+  @@index([modelNumber])
+}
+
+model User {
+  id            String    @id @default(uuid())
+  createdAt     DateTime
+  updatedAt     DateTime
+  name          String
+  email         String    @unique
+  emailVerified Boolean
+  image         String?
+  accounts      Account[]
+  sessions      Session[]
+
+  @@map("users")
+}
+
+model Session {
+  id             String   @id @default(uuid())
+  createdAt      DateTime
+  updatedAt      DateTime
+  expiresAt      DateTime
+  token          String   @unique
+  ipAddress      String?
+  userAgent      String?
+  impersonatedBy String?
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+model Account {
+  id                    String    @id @default(uuid())
+  createdAt             DateTime
+  updatedAt             DateTime
+  accountId             String
+  providerId            String
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("accounts")
+}
+
+model Verification {
+  id         String    @id @default(uuid())
+  createdAt  DateTime?
+  updatedAt  DateTime?
+  identifier String
+  value      String
+  expiresAt  DateTime
+
+  @@map("verifications")
+}
