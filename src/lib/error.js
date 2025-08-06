@@ -3,7 +3,10 @@ export default function error(error, status = 400) {
     JSON.stringify({ success: false, error }),
     {
       status,
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        "Access-Control-Allow-Origin": "http://localhost:3000", // <-- Add this
+      },
     }
   );
 }

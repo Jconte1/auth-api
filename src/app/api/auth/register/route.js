@@ -1,10 +1,20 @@
-
 import prisma from '@/lib/prisma';
 import argon2 from 'argon2';
 import crypto from 'crypto';
 import success from '@/lib/success';
 import error from '@/lib/error';
 import sendAuthEmail from '@/lib/email'; 
+
+export async function OPTIONS(req) {
+  return new Response(null, {
+    status: 204,
+    headers: {
+      "Access-Control-Allow-Origin": "http://localhost:3000",
+      "Access-Control-Allow-Methods": "POST, OPTIONS",
+      "Access-Control-Allow-Headers": "Content-Type, Authorization",
+    },
+  });
+}
 
 export async function POST(req) {
   try {
