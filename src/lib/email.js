@@ -1,6 +1,8 @@
 import nodemailer from 'nodemailer';
 
 const {
+  SMTP_HOST,
+  SMTP_PORT,
   AUTO_EMAIL,
   AUTO_EMAIL_PASSWORD,
   FRONTEND_URL,
@@ -12,10 +14,15 @@ let transporter = global.transporter;
 
 if (!transporter) {
   transporter = nodemailer.createTransport({
-    service: 'gmail',
+    host: SMTP_HOST,
+    port: parseInt(SMTP_PORT, 10),
+    secure: false,
     auth: {
       user: AUTO_EMAIL,
       pass: AUTO_EMAIL_PASSWORD,
+    },
+    tls: {
+      rejectUnauthorized: false,
     },
   });
 
