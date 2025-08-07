@@ -6,6 +6,17 @@ import error from '@/lib/error';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'dev_secret';
 
+export async function OPTIONS(req) {
+  return new Response(null, {
+    status: 204,
+    headers: {
+      "Access-Control-Allow-Origin": "http://localhost:3000",
+      "Access-Control-Allow-Methods": "POST, OPTIONS",
+      "Access-Control-Allow-Headers": "Content-Type, Authorization",
+    },
+  });
+}
+
 export async function POST(req) {
   try {
     const { email, password } = await req.json();
