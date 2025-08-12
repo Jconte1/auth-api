@@ -24,34 +24,37 @@ export async function POST(req) {
     const user = await prisma.user.findUnique({ where: { email } });
     if (!user || !user.emailVerified) {
       // Always respond with success to avoid email enumeration
-      return success({ message: 'If this email exists and is verified, you will receive a password reset link.' });
+      return success({ message: 'If this email exists and is verified, you will receive a one-time password.' });
     }
 
-    // 2. Generate secure token
-    const token = crypto.randomBytes(32).toString('hex');
-    const expires = new Date(Date.now() + 1000 * 60 * 60); // 1 hour
+    // 2. Generate a secure 6-digit numeric OTP (or 6-character alphanumeric if you want)
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
 
-    // 3. Store token in Verification table
+    // 3. Set expiration (10 minutes)
+    const expires = new Date(Date.now() + 1000 * 60 * 10);
+
+    // 4. Store OTP in Verification table
     await prisma.verification.create({
       data: {
         identifier: email,
-        value: token,
+        value: otp,
         expiresAt: expires,
         createdAt: new Date(),
         updatedAt: new Date(),
       }
     });
 
-    // 4. Send password reset email
+    // 5. Send the OTP email
     await sendAuthEmail({
       to: email,
       name: user.name,
-      token,
-      type: 'reset', // send as a reset email
+      token: otp,
+      type: 'otp',
     });
 
     // Always return same message for security
-    return success({ message: 'If this email exists and is verified, you will receive a password reset link.' });
+    return success({ message: 'If this email exists and is verified, you will receive a one-time password.' });
+
   } catch (err) {
     return error(err.message || 'Failed to initiate password reset.', 500);
   }

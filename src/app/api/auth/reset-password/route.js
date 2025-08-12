@@ -5,23 +5,30 @@ import error from '@/lib/error';
 
 export async function POST(req) {
   try {
-    const { email, token, newPassword } = await req.json();
+    const { email, otp, newPassword, confirmPassword } = await req.json();
 
     // 1. Basic validation
-    if (!email || !token || !newPassword) {
-      return error('Missing email, token, or new password.', 400);
+    if (!email || !otp || !newPassword || !confirmPassword) {
+      return error('Missing required fields.', 400);
+    }
+    if (newPassword !== confirmPassword) {
+      return error('Passwords do not match.', 400);
+    }
+    if (newPassword.length < 8) {
+      // Adjust minimum length/strength as you wish
+      return error('Password must be at least 8 characters.', 400);
     }
 
-    // 2. Find matching verification token
+    // 2. Find valid OTP in verification table
     const verification = await prisma.verification.findFirst({
       where: {
         identifier: email,
-        value: token,
-        expiresAt: { gte: new Date() }
+        value: otp,
+        expiresAt: { gte: new Date() },
       }
     });
     if (!verification) {
-      return error('Invalid or expired verification link.', 400);
+      return error('Invalid or expired one-time password.', 400);
     }
 
     // 3. Find user
@@ -43,7 +50,7 @@ export async function POST(req) {
       }
     });
 
-    // 6. Delete verification token (one-time use)
+    // 6. Delete OTP (one-time use)
     await prisma.verification.delete({
       where: { id: verification.id }
     });
