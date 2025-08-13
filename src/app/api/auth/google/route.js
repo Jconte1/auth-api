@@ -9,7 +9,7 @@ const JWT_SECRET = process.env.JWT_SECRET || 'dev_secret';
 
 // Google Auth Library client
 const oauthClient = new OAuth2Client(GOOGLE_CLIENT_ID);
-
+//
 export async function POST(req) {
   try {
     const { idToken } = await req.json();
