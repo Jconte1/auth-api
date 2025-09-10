@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import AcumaticaService from "@/lib/acumatica/acumaticaService";
 import { upsertOrderSummariesForBAID, purgeOldOrders } from "@/lib/acumatica/orderSummaryWriter";
 
-// ---- helpers (same as before) ----
+// ---- helpers ----
 function startOfDayDenver(d = new Date()) {
   const local = new Date(d.toLocaleString("en-US", { timeZone: "America/Denver" }));
   local.setHours(0, 0, 0, 0);
@@ -17,7 +17,6 @@ function oneYearAgoDenver(d = new Date()) {
 async function fetchOrders(restService, baid) {
   const token = await restService.getToken();
   const url = `${restService.baseUrl}/entity/CustomEndpoint/24.200.001//SalesOrder?$filter=CustomerID eq '${baid}'&$select=OrderNbr,Status,LocationID,RequestedOn`;
-
 
   const resp = await fetch(encodeURI(url), {
     method: "GET",
@@ -86,7 +85,7 @@ function shapeAndFilter(rawRows) {
   };
 }
 
-// ✅ Named export for POST — no default export in this file
+// ✅ POST (manual/admin-triggered)
 export async function POST(req) {
   try {
     const body = await req.json();
@@ -103,16 +102,9 @@ export async function POST(req) {
       process.env.ACUMATICA_PASSWORD
     );
 
-    // 1) fetch
     const rawRows = await fetchOrders(restService, baid);
-
-    // 2) shape + filter
     const { kept, counts, cutoff } = shapeAndFilter(rawRows);
-
-    // 3) write
     const { upserted, inactivated } = await upsertOrderSummariesForBAID(baid, kept, cutoff);
-
-    // 4) purge >1y
     const purged = await purgeOldOrders(cutoff);
 
     return NextResponse.json({
@@ -124,43 +116,42 @@ export async function POST(req) {
     console.error("ingest-order-summaries POST error:", e);
     return NextResponse.json({ message: "Server error", error: String(e?.message || e) }, { status: 500 });
   }
+}
 
-  export async function GET(req) {
-    try {
-      const { searchParams } = new URL(req.url);
-      const baid = (searchParams.get("baid") || "").trim();
-      const token = searchParams.get("token") || "";
+// ✅ GET (for Vercel Cron) — requires ?baid=...&token=...
+export async function GET(req) {
+  try {
+    const { searchParams } = new URL(req.url);
+    const baid = (searchParams.get("baid") || "").trim();
+    const token = searchParams.get("token") || "";
 
-      // 1) protect with secret
-      if (!token || token !== process.env.CRON_SECRET) {
-        return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
-      }
-      if (!baid) {
-        return NextResponse.json({ message: "Provide ?baid=..." }, { status: 400 });
-      }
-
-      // 2) same flow as POST
-      const restService = new AcumaticaService(
-        process.env.ACUMATICA_BASE_URL,
-        process.env.ACUMATICA_CLIENT_ID,
-        process.env.ACUMATICA_CLIENT_SECRET,
-        process.env.ACUMATICA_USERNAME,
-        process.env.ACUMATICA_PASSWORD
-      );
-
-      const rawRows = await fetchOrders(restService, baid);
-      const { kept, counts, cutoff } = shapeAndFilter(rawRows);
-      const { upserted, inactivated } = await upsertOrderSummariesForBAID(baid, kept, cutoff);
-      const purged = await purgeOldOrders(cutoff);
-
-      return NextResponse.json({
-        baid,
-        erp: counts,
-        db: { upserted, inactivated, purged },
-      });
-    } catch (e) {
-      console.error("ingest-order-summaries GET error:", e);
-      return NextResponse.json({ message: "Server error", error: String(e?.message || e) }, { status: 500 });
+    if (!token || token !== process.env.CRON_SECRET) {
+      return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
     }
+    if (!baid) {
+      return NextResponse.json({ message: "Provide ?baid=..." }, { status: 400 });
+    }
+
+    const restService = new AcumaticaService(
+      process.env.ACUMATICA_BASE_URL,
+      process.env.ACUMATICA_CLIENT_ID,
+      process.env.ACUMATICA_CLIENT_SECRET,
+      process.env.ACUMATICA_USERNAME,
+      process.env.ACUMATICA_PASSWORD
+    );
+
+    const rawRows = await fetchOrders(restService, baid);
+    const { kept, counts, cutoff } = shapeAndFilter(rawRows);
+    const { upserted, inactivated } = await upsertOrderSummariesForBAID(baid, kept, cutoff);
+    const purged = await purgeOldOrders(cutoff);
+
+    return NextResponse.json({
+      baid,
+      erp: counts,
+      db: { upserted, inactivated, purged },
+    });
+  } catch (e) {
+    console.error("ingest-order-summaries GET error:", e);
+    return NextResponse.json({ message: "Server error", error: String(e?.message || e) }, { status: 500 });
   }
 }
