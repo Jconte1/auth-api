@@ -17,7 +17,7 @@ function oneYearAgoDenver(d = new Date()) {
 async function fetchOrders(restService, baid) {
   const token = await restService.getToken();
   const url = `${restService.baseUrl}/entity/CustomEndpoint/24.200.001//SalesOrder?$filter=CustomerID eq '${baid}'&$select=OrderNbr,Status,LocationID,RequestedOn`;
- 
+
 
   const resp = await fetch(encodeURI(url), {
     method: "GET",
@@ -123,5 +123,44 @@ export async function POST(req) {
   } catch (e) {
     console.error("ingest-order-summaries POST error:", e);
     return NextResponse.json({ message: "Server error", error: String(e?.message || e) }, { status: 500 });
+  }
+
+  export async function GET(req) {
+    try {
+      const { searchParams } = new URL(req.url);
+      const baid = (searchParams.get("baid") || "").trim();
+      const token = searchParams.get("token") || "";
+
+      // 1) protect with secret
+      if (!token || token !== process.env.CRON_SECRET) {
+        return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
+      }
+      if (!baid) {
+        return NextResponse.json({ message: "Provide ?baid=..." }, { status: 400 });
+      }
+
+      // 2) same flow as POST
+      const restService = new AcumaticaService(
+        process.env.ACUMATICA_BASE_URL,
+        process.env.ACUMATICA_CLIENT_ID,
+        process.env.ACUMATICA_CLIENT_SECRET,
+        process.env.ACUMATICA_USERNAME,
+        process.env.ACUMATICA_PASSWORD
+      );
+
+      const rawRows = await fetchOrders(restService, baid);
+      const { kept, counts, cutoff } = shapeAndFilter(rawRows);
+      const { upserted, inactivated } = await upsertOrderSummariesForBAID(baid, kept, cutoff);
+      const purged = await purgeOldOrders(cutoff);
+
+      return NextResponse.json({
+        baid,
+        erp: counts,
+        db: { upserted, inactivated, purged },
+      });
+    } catch (e) {
+      console.error("ingest-order-summaries GET error:", e);
+      return NextResponse.json({ message: "Server error", error: String(e?.message || e) }, { status: 500 });
+    }
   }
 }
