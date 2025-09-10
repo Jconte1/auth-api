@@ -1,0 +1,8 @@
+{
+  "crons": [
+    {
+      "path": "/api/acumatica/ingest-order-summaries?baid=BA0001225",
+      "schedule": "0 8 * * *"
+    }
+  ]
+}

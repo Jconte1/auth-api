@@ -123,9 +123,14 @@ export async function GET(req) {
   try {
     const { searchParams } = new URL(req.url);
     const baid = (searchParams.get("baid") || "").trim();
-    const token = searchParams.get("token") || "";
 
-    if (!token || token !== process.env.CRON_SECRET) {
+    // ── AUTH: prefer Authorization header; allow ?token=... as fallback for manual tests
+    const headerAuth = req.headers.get("authorization") || "";
+    const queryToken = searchParams.get("token") || "";
+    const okByHeader = headerAuth === `Bearer ${process.env.CRON_SECRET}`;
+    const okByQuery  = queryToken && queryToken === process.env.CRON_SECRET;
+
+    if (!okByHeader && !okByQuery) {
       return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
     }
     if (!baid) {
