@@ -41,37 +41,8 @@ model closeout_inventory {
   @@index([modelNumber])
 }
 
-model User {
-  id            String    @id @default(uuid())
-  createdAt     DateTime
-  updatedAt     DateTime
-  name          String
-  email         String    @unique
-  emailVerified Boolean
-  image         String?
-  accounts      Account[]
-  sessions      Session[]
-
-  @@map("users")
-}
-
-model Session {
-  id             String   @id @default(uuid())
-  createdAt      DateTime
-  updatedAt      DateTime
-  expiresAt      DateTime
-  token          String   @unique
-  ipAddress      String?
-  userAgent      String?
-  impersonatedBy String?
-  userId         String
-  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@map("sessions")
-}
-
-model Account {
-  id                    String    @id @default(uuid())
+model accounts {
+  id                    String    @id
   createdAt             DateTime
   updatedAt             DateTime
   accountId             String
@@ -84,18 +55,72 @@ model Account {
   scope                 String?
   password              String?
   userId                String
-  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@map("accounts")
+  users                 users     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
-model Verification {
-  id         String    @id @default(uuid())
+model sessions {
+  id             String   @id
+  createdAt      DateTime
+  updatedAt      DateTime
+  expiresAt      DateTime
+  token          String   @unique
+  ipAddress      String?
+  userAgent      String?
+  impersonatedBy String?
+  userId         String
+  users          users    @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model users {
+  id            String     @id
+  createdAt     DateTime
+  updatedAt     DateTime
+  name          String
+  email         String     @unique
+  emailVerified Boolean
+  image         String?
+  baid          String?    @db.VarChar(64)
+  accounts      accounts[]
+  sessions      sessions[]
+}
+
+model verifications {
+  id         String    @id
   createdAt  DateTime?
   updatedAt  DateTime?
   identifier String
   value      String
   expiresAt  DateTime
+}
 
-  @@map("verifications")
+model ErpOrderSummary {
+  id           String   @id @default(cuid())
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  baid         String   @db.VarChar(64)
+  orderNbr     String   @db.VarChar(64)
+
+  locationId   String?  @db.VarChar(64)
+  locationName String?  @db.VarChar(128)
+  status       String   @db.VarChar(48)
+  deliveryDate DateTime?
+
+  lastSeenAt   DateTime @default(now())
+  isActive     Boolean  @default(true)
+
+  // Name the compound unique so we can use baid_orderNbr in code
+  @@unique([baid, orderNbr], name: "baid_orderNbr")
+  @@index([baid, deliveryDate])
+  @@index([baid, isActive, status])
+}
+
+model ErpSyncRun {
+  id         String   @id @default(cuid())
+  baid       String   @db.VarChar(64)
+  startedAt  DateTime @default(now())
+  finishedAt DateTime?
+  ok         Boolean?
+  note       String?
+  @@index([baid, startedAt])
 }
