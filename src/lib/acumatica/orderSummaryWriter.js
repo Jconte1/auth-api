@@ -155,7 +155,14 @@ export async function upsertOrderSummariesForBAID(
 export async function purgeOldOrders(cutoff) {
   const t1 = nowMs();
   const { count } = await prisma.ErpOrderSummary.deleteMany({
-    where: { deliveryDate: { lt: cutoff } },
+    where: {
+      deliveryDate: { lt: cutoff },
+    OR: [
+        { status: "Cancelled" },
+        { status: "On Hold" },
+        { orderNbr: { startsWith: "QT" } },
+      ],
+    },
   });
   const t2 = nowMs();
   console.log(`[timing] db_purge: ${(t2 - t1).toFixed(1)} ms (deleted=${count})`);
