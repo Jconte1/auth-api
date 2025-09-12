@@ -1,91 +1,13 @@
 // src/app/api/acumatica/ingest-order-summaries/route.js
 import { NextResponse } from "next/server";
 import AcumaticaService from "@/lib/acumatica/acumaticaService";
+import fetchOrders from "@/lib/acumatica/fetchOrders";
+import shapeAndFilter from "@/lib/acumatica/shapeAndFilter";
+import { isCronAuthorized } from "@/lib/cron/auth";
 import { upsertOrderSummariesForBAID, purgeOldOrders } from "@/lib/acumatica/orderSummaryWriter";
+import { createStopwatch } from "@/lib/metrics/stopwatch";
 
-// ---- helpers ----
-function startOfDayDenver(d = new Date()) {
-  const local = new Date(d.toLocaleString("en-US", { timeZone: "America/Denver" }));
-  local.setHours(0, 0, 0, 0);
-  return local;
-}
-function oneYearAgoDenver(d = new Date()) {
-  const s = startOfDayDenver(d);
-  s.setFullYear(s.getFullYear() - 1);
-  return s;
-}
-async function fetchOrders(restService, baid) {
-  const token = await restService.getToken();
-  const url = `${restService.baseUrl}/entity/CustomEndpoint/24.200.001//SalesOrder?$filter=CustomerID eq '${baid}'&$select=OrderNbr,Status,LocationID,RequestedOn`;
-
-  const resp = await fetch(encodeURI(url), {
-    method: "GET",
-    headers: {
-      "Content-Type": "application/json",
-      Accept: "application/json",
-      Authorization: `Bearer ${token}`,
-    },
-  });
-
-  const raw = await resp.text();
-  if (!resp.ok) throw new Error(raw || `ERP error for ${baid}`);
-
-  const parsed = raw ? JSON.parse(raw) : [];
-  return Array.isArray(parsed) ? parsed : [];
-}
-function shapeAndFilter(rawRows) {
-  const cutoff = oneYearAgoDenver(new Date());
-
-  const normalized = [];
-  let droppedMissing = 0;
-  for (const row of rawRows) {
-    const orderNbr = row?.OrderNbr?.value ?? row?.OrderNbr ?? null;
-    const status = row?.Status?.value ?? row?.Status ?? null;
-    const locationId = row?.LocationID?.value ?? row?.LocationID ?? null;
-    const requestedOnRaw = row?.RequestedOn?.value ?? row?.RequestedOn ?? null;
-    if (!orderNbr || !status || !locationId || !requestedOnRaw) {
-      droppedMissing++; continue;
-    }
-    const requestedOn = new Date(requestedOnRaw);
-    if (Number.isNaN(requestedOn.getTime())) { droppedMissing++; continue; }
-    normalized.push({
-      orderNbr: String(orderNbr),
-      status: String(status),
-      locationId: String(locationId),
-      requestedOn: requestedOn.toISOString(),
-    });
-  }
-
-  // 1-year window
-  const cutoffISO = cutoff.toISOString();
-  const withinWindow = [];
-  let droppedOld = 0;
-  for (const item of normalized) {
-    if (item.requestedOn >= cutoffISO) withinWindow.push(item);
-    else droppedOld++;
-  }
-
-  // dedupe by orderNbr (keep most recent requestedOn)
-  const byNbr = new Map();
-  for (const item of withinWindow) {
-    const prev = byNbr.get(item.orderNbr);
-    if (!prev || item.requestedOn > prev.requestedOn) byNbr.set(item.orderNbr, item);
-  }
-  const deduped = Array.from(byNbr.values());
-
-  return {
-    kept: deduped,
-    counts: {
-      totalFromERP: rawRows.length,
-      droppedMissing,
-      droppedOld,
-      kept: deduped.length,
-    },
-    cutoff,
-  };
-}
-
-// ✅ POST (manual/admin-triggered)
+// POST — manual/admin-triggered
 export async function POST(req) {
   try {
     const body = await req.json();
@@ -94,6 +16,8 @@ export async function POST(req) {
       return NextResponse.json({ message: "Provide { baid: 'BA0001225' }" }, { status: 400 });
     }
 
+    const sw = createStopwatch(`POST ${baid}`);
+
     const restService = new AcumaticaService(
       process.env.ACUMATICA_BASE_URL,
       process.env.ACUMATICA_CLIENT_ID,
@@ -103,14 +27,32 @@ export async function POST(req) {
     );
 
     const rawRows = await fetchOrders(restService, baid);
+    const tFetch = sw.lap("erp_fetch");
+
     const { kept, counts, cutoff } = shapeAndFilter(rawRows);
+    const tShape = sw.lap("shape_filter_dedupe");
+
     const { upserted, inactivated } = await upsertOrderSummariesForBAID(baid, kept, cutoff);
+    const tWrites = sw.lap("db_upserts_and_inactivate");
+
     const purged = await purgeOldOrders(cutoff);
+    const tPurge = sw.lap("db_purge");
+    const tTotal = sw.total();
+
 
     return NextResponse.json({
       baid,
       erp: counts,
-      db: { upserted, inactivated, purged },
+      db: {
+        upserted, inactivated, purged
+      },
+      timing: {
+        erpFetchMs: Number(tFetch.toFixed ? tFetch.toFixed(1) : tFetch),
+        shapeMs: Number(tShape.toFixed ? tShape.toFixed(1) : tShape),
+        dbWritesMs: Number(tWrites.toFixed ? tWrites.toFixed(1) : tWrites),
+        purgeMs: Number(tPurge.toFixed ? tPurge.toFixed(1) : tPurge),
+        totalMs: Number(tTotal.toFixed ? tTotal.toFixed(1) : tTotal),
+      },
     });
   } catch (e) {
     console.error("ingest-order-summaries POST error:", e);
@@ -118,24 +60,20 @@ export async function POST(req) {
   }
 }
 
-// ✅ GET (for Vercel Cron) — requires ?baid=...&token=...
+// GET — for Vercel Cron (Authorization header) or manual (?token=)
 export async function GET(req) {
   try {
     const { searchParams } = new URL(req.url);
     const baid = (searchParams.get("baid") || "").trim();
 
-    // ── AUTH: prefer Authorization header; allow ?token=... as fallback for manual tests
-    const headerAuth = req.headers.get("authorization") || "";
-    const queryToken = searchParams.get("token") || "";
-    const okByHeader = headerAuth === `Bearer ${process.env.CRON_SECRET}`;
-    const okByQuery  = queryToken && queryToken === process.env.CRON_SECRET;
-
-    if (!okByHeader && !okByQuery) {
+    if (!isCronAuthorized(req, searchParams)) {
       return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
     }
     if (!baid) {
       return NextResponse.json({ message: "Provide ?baid=..." }, { status: 400 });
     }
+
+    const sw = createStopwatch(`GET ${baid}`);
 
     const restService = new AcumaticaService(
       process.env.ACUMATICA_BASE_URL,
@@ -146,14 +84,31 @@ export async function GET(req) {
     );
 
     const rawRows = await fetchOrders(restService, baid);
+    const tFetch = sw.lap("erp_fetch");
+
     const { kept, counts, cutoff } = shapeAndFilter(rawRows);
+    const tShape = sw.lap("shape_filter_dedupe");
+
     const { upserted, inactivated } = await upsertOrderSummariesForBAID(baid, kept, cutoff);
+    const tWrites = sw.lap("db_upserts_and_inactivate");
+
     const purged = await purgeOldOrders(cutoff);
+    const tPurge = sw.lap("db_purge");
+    const tTotal = sw.total();
 
     return NextResponse.json({
       baid,
       erp: counts,
-      db: { upserted, inactivated, purged },
+      db: {
+        upserted, inactivated, purged
+      },
+      timing: {
+        erpFetchMs: Number(tFetch.toFixed ? tFetch.toFixed(1) : tFetch),
+        shapeMs: Number(tShape.toFixed ? tShape.toFixed(1) : tShape),
+        dbWritesMs: Number(tWrites.toFixed ? tWrites.toFixed(1) : tWrites),
+        purgeMs: Number(tPurge.toFixed ? tPurge.toFixed(1) : tPurge),
+        totalMs: Number(tTotal.toFixed ? tTotal.toFixed(1) : tTotal),
+      },
     });
   } catch (e) {
     console.error("ingest-order-summaries GET error:", e);
