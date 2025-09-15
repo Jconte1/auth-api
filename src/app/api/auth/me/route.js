@@ -1,7 +1,7 @@
 import jwt from 'jsonwebtoken';
-import prisma from '@/lib/prisma';
-import success from '@/lib/success';
-import error from '@/lib/error';
+import prisma from '@/lib/prisma/prisma';
+import success from '@/lib/auth-helpers/success';
+import error from '@/lib/auth-helpers/error';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'dev_secret';
 

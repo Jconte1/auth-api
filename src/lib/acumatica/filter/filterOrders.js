@@ -1,4 +1,4 @@
-// src/lib/acumatica/shapeAndFilter.js
+// src/lib/acumatica/filterInventoryDetails.js
 import { oneYearAgoDenver } from "@/lib/time/denver";
 
 export default function shapeAndFilter(rawRows) {

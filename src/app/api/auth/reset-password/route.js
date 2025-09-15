@@ -1,7 +1,7 @@
-import prisma from '@/lib/prisma';
+import prisma from '@/lib/prisma/prisma';
 import argon2 from 'argon2';
-import success from '@/lib/success';
-import error from '@/lib/error';
+import success from '@/lib/auth-helpers/success';
+import error from '@/lib/auth-helpers/error';
 
 export async function OPTIONS(req) {
   return new Response(null, {

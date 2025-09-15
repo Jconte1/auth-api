@@ -1,10 +1,10 @@
 // src/app/api/auth/forgot-password/route.js (App Router style)
-import prisma from '@/lib/prisma';
+import prisma from '@/lib/prisma/prisma';
 import crypto from 'crypto';
 import argon2 from 'argon2';
-import success from '@/lib/success';
-import error from '@/lib/error';
-import sendAuthEmail from '@/lib/email';
+import success from '@/lib/auth-helpers/success';
+import error from '@/lib/auth-helpers/error';
+import sendAuthEmail from '@/lib/auth-helpers/email';
 
 const TYPE = 'PASSWORD_RESET_OTP';
 

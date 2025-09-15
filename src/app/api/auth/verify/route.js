@@ -1,6 +1,6 @@
-import prisma from '@/lib/prisma';
-import success from '@/lib/success';
-import error from '@/lib/error';
+import prisma from '@/lib/prisma/prisma';
+import success from '@/lib/auth-helpers/success';
+import error from '@/lib/auth-helpers/error';
 
 export async function GET(req) {
   try {

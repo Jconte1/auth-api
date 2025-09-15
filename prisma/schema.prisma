@@ -102,17 +102,111 @@ model ErpOrderSummary {
   orderNbr     String   @db.VarChar(64)
 
   locationId   String?  @db.VarChar(64)
-  locationName String?  @db.VarChar(128)
+  jobName      String?  @db.VarChar(128) // was: locationName
   status       String   @db.VarChar(48)
   deliveryDate DateTime?
+  shipVia      String?  @db.VarChar(64)
 
   lastSeenAt   DateTime @default(now())
   isActive     Boolean  @default(true)
 
-  // Name the compound unique so we can use baid_orderNbr in code
+  // Relations
+  address      ErpOrderAddress?
+  contact      ErpOrderContact?
+  payment      ErpOrderPayment?
+  lines        ErpOrderLine[]
+
   @@unique([baid, orderNbr], name: "baid_orderNbr")
   @@index([baid, deliveryDate])
   @@index([baid, isActive, status])
+}
+
+model ErpOrderAddress {
+  id              String   @id @default(cuid())
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  // FK to order (1:1 -> must be unique)
+  orderSummaryId  String   @unique @db.VarChar(64)
+  order           ErpOrderSummary @relation(fields: [orderSummaryId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  // convenient filters
+  baid            String   @db.VarChar(64)
+  orderNbr        String   @db.VarChar(64)
+
+  addressLine1    String?  @db.VarChar(256)
+  addressLine2    String?  @db.VarChar(256)
+  city            String?  @db.VarChar(128)
+  state           String?  @db.VarChar(64)
+  postalCode      String?  @db.VarChar(32)
+
+  @@index([orderSummaryId])
+  @@index([baid, orderNbr])
+}
+
+model ErpOrderContact {
+  id              String   @id @default(cuid())
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  // FK to order (1:1 -> must be unique)
+  orderSummaryId  String   @unique @db.VarChar(64)
+  order           ErpOrderSummary @relation(fields: [orderSummaryId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  // convenient filters
+  baid            String   @db.VarChar(64)
+  orderNbr        String   @db.VarChar(64)
+
+  deliveryEmail   String?  @db.VarChar(256)
+  siteNumber      String?  @db.VarChar(128) // Document.AttributeSITENUMBER
+  osContact       String?  @db.VarChar(256) // Document.AttributeOSCONTACT
+
+  @@index([orderSummaryId])
+  @@index([baid, orderNbr])
+}
+
+model ErpOrderPayment {
+  id              String    @id @default(cuid())
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  // FK to order (1:1 -> must be unique)
+  orderSummaryId  String    @unique @db.VarChar(64)
+  order           ErpOrderSummary @relation(fields: [orderSummaryId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  // convenient filters
+  baid            String    @db.VarChar(64)
+  orderNbr        String    @db.VarChar(64)
+
+  orderTotal      Decimal?  @db.Decimal(18, 2)
+  unpaidBalance   Decimal?  @db.Decimal(18, 2)
+
+  @@index([orderSummaryId])
+  @@index([baid, orderNbr])
+}
+
+model ErpOrderLine {
+  id              String    @id @default(cuid())
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  // FK to order (1:M, no unique)
+  orderSummaryId  String    @db.VarChar(64)
+  order           ErpOrderSummary @relation(fields: [orderSummaryId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  // convenient filters
+  baid            String    @db.VarChar(64)
+  orderNbr        String    @db.VarChar(64)
+
+  lineDescription String?   @db.VarChar(512) // Details/LineDescription
+  inventoryId     String?   @db.VarChar(128) // Details/InventoryID
+  lineType        String?   @db.VarChar(64)  // Details/LineType
+  openQty         Decimal?  @db.Decimal(18, 4) // Details/OpenQty
+  unitPrice       Decimal?  @db.Decimal(18, 2) // Details/UnitPrice
+  usrETA          DateTime?                 // Details/UsrETA (line ETA)
+
+  @@index([orderSummaryId])
+  @@index([baid, orderNbr])
 }
 
 model ErpSyncRun {

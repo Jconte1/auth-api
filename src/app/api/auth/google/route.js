@@ -1,8 +1,8 @@
 import { OAuth2Client } from 'google-auth-library';
-import prisma from '@/lib/prisma';
+import prisma from '@/lib/prisma/prisma';
 import jwt from 'jsonwebtoken';
-import success from '@/lib/success';
-import error from '@/lib/error';
+import success from '@/lib/auth-helpers/success';
+import error from '@/lib/auth-helpers/error';
 
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const JWT_SECRET = process.env.JWT_SECRET || 'dev_secret';

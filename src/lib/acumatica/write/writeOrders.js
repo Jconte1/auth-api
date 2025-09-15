@@ -1,4 +1,5 @@
-import prisma from "@/lib/prisma";
+// src/lib/acumatica/write/writeOrders.js
+import prisma from "@/lib/prisma/prisma";
 
 function nowMs() { return Number(process.hrtime.bigint() / 1_000_000n); }
 
@@ -6,38 +7,44 @@ function nowMs() { return Number(process.hrtime.bigint() / 1_000_000n); }
  * Upsert summaries for a BAID with "fast insert, update only if changed".
  * - Reads existing rows within the window
  * - createMany (skipDuplicates) for new rows
- * - per-row updates only when status/locationId/deliveryDate changed
+ * - per-row updates only when status/locationId/deliveryDate/shipVia/jobName changed
  * - marks missing as inactive (same logic as before)
  *
  * @param {string} baid
  * @param {Array<{orderNbr:string,status:string,locationId:string,requestedOn:string}>} orders
  * @param {Date} cutoff  Only affect rows with deliveryDate >= cutoff
- * @param {{concurrency?: number}} opts  (for update phase)
+ * @param {{concurrency?: number, extrasByNbr?: Record<string, { shipVia?: string|null, jobName?: string|null }>}} opts
+ *    extrasByNbr is optional. If provided, we will also write shipVia & jobName.
  * @returns {{inserted:number,updated:number,inactivated:number}}
  */
 export async function upsertOrderSummariesForBAID(
   baid,
   orders,
   cutoff,
-  { concurrency = 10 } = {}
+  { concurrency = 10, extrasByNbr = undefined } = {}
 ) {
   const now = new Date();
   const t0 = nowMs();
 
-  // Build a lookup from incoming payload
-  // Normalize types once here
-  const incoming = orders.map(o => ({
-    orderNbr: String(o.orderNbr),
-    status: String(o.status),
-    locationId: o.locationId != null ? String(o.locationId) : null,
-    deliveryDate: new Date(o.requestedOn), // from requestedOn ISO
-  }));
+  // Build a lookup from incoming payload; normalize types once here
+  const incoming = orders.map(o => {
+    const orderNbr = String(o.orderNbr);
+    const extra = extrasByNbr?.[orderNbr];
+    return {
+      orderNbr,
+      status: String(o.status),
+      locationId: o.locationId != null ? String(o.locationId) : null,
+      deliveryDate: new Date(o.requestedOn), // from requestedOn ISO
+      shipVia: extra?.shipVia != null ? String(extra.shipVia) : null,
+      jobName:  extra?.jobName  != null ? String(extra.jobName)  : null,
+    };
+  });
 
   // 1) Read existing rows for this BAID within the window
   const tR1 = nowMs();
   const existing = await prisma.ErpOrderSummary.findMany({
     where: { baid, deliveryDate: { gte: cutoff } },
-    select: { orderNbr: true, status: true, locationId: true, deliveryDate: true },
+    select: { orderNbr: true, status: true, locationId: true, deliveryDate: true, shipVia: true, jobName: true },
   });
   const tR2 = nowMs();
   console.log(`[timing] db_read_existing: ${(tR2 - tR1).toFixed(1)} ms (rows=${existing.length})`);
@@ -57,7 +64,10 @@ export async function upsertOrderSummariesForBAID(
         row.status !== prev.status ||
         row.locationId !== prev.locationId ||
         // Compare date value (normalize to ms)
-        new Date(row.deliveryDate).getTime() !== new Date(prev.deliveryDate).getTime();
+        new Date(row.deliveryDate).getTime() !== new Date(prev.deliveryDate).getTime() ||
+        // New fields:
+        (row.shipVia ?? null) !== (prev.shipVia ?? null) ||
+        (row.jobName ?? null)  !== (prev.jobName ?? null);
 
       if (changed) toUpdate.push(row);
     }
@@ -73,7 +83,8 @@ export async function upsertOrderSummariesForBAID(
         orderNbr: r.orderNbr,
         status: r.status,
         locationId: r.locationId,
-        locationName: null,
+        jobName: r.jobName ?? null,
+        shipVia: r.shipVia ?? null,
         deliveryDate: r.deliveryDate,
         lastSeenAt: now,
         isActive: true,
@@ -110,6 +121,8 @@ export async function upsertOrderSummariesForBAID(
         data: {
           status: r.status,
           locationId: r.locationId,
+          jobName: r.jobName ?? null,
+          shipVia: r.shipVia ?? null,
           deliveryDate: r.deliveryDate,
           lastSeenAt: now,
           isActive: true,
@@ -157,7 +170,7 @@ export async function purgeOldOrders(cutoff) {
   const { count } = await prisma.ErpOrderSummary.deleteMany({
     where: {
       deliveryDate: { lt: cutoff },
-    OR: [
+      OR: [
         { status: "Cancelled" },
         { status: "On Hold" },
         { orderNbr: { startsWith: "QT" } },

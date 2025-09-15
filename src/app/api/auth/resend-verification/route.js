@@ -1,8 +1,8 @@
-import prisma from '@/lib/prisma';
+import prisma from '@/lib/prisma/prisma';
 import crypto from 'crypto';
-import success from '@/lib/success';
-import error from '@/lib/error';
-import sendAuthEmail from '@/lib/email';
+import success from '@/lib/auth-helpers/success';
+import error from '@/lib/auth-helpers/error';
+import sendAuthEmail from '@/lib/auth-helpers/email';
 
 export async function POST(req) {
   try {

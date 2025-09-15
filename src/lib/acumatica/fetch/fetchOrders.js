@@ -1,4 +1,4 @@
-// src/lib/acumatica/fetchOrders.js
+// src/lib/acumatica/fetch/fetchOrders.js
 import { oneYearAgoDenver, toDenverDateTimeOffsetLiteral } from "@/lib/time/denver";
 
 export default async function fetchOrders(restService, baid) {
@@ -14,9 +14,9 @@ export default async function fetchOrders(restService, baid) {
         `CustomerID eq '${baid}' and RequestedOn ge ${cutoffLiteral} and ` +
         `Status ne 'Canceled' and Status ne 'On Hold'`
     );
-    params.set("$select", "OrderNbr,Status,LocationID,RequestedOn");
-
-    const url = `${restService.baseUrl}/entity/CustomEndpoint/24.200.001//SalesOrder?${params.toString()}`;
+    params.set("$select", "OrderNbr,Status,LocationID,RequestedOn,Terms,OrderTotal,UnpaidBalance,ShipVia,AddressLine1,AddressLine2,City,State,PostalCode,JobName,DeliveryEmail");
+    params.set("$custom", "Document.AttributeSITENUMBER,Document.AttributeOSCONTACT");
+    const url = `${restService.baseUrl}/entity/CustomEndpoint/24.200.001/SalesOrder?${params.toString()}`;
 
     const resp = await fetch(url, {
         method: "GET",

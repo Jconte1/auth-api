@@ -1,9 +1,9 @@
-import prisma from '@/lib/prisma';
+import prisma from '@/lib/prisma/prisma';
 import argon2 from 'argon2';
 import crypto from 'crypto';
-import success from '@/lib/success';
-import error from '@/lib/error';
-import sendAuthEmail from '@/lib/email';
+import success from '@/lib/auth-helpers/success';
+import error from '@/lib/auth-helpers/error';
+import sendAuthEmail from '@/lib/auth-helpers/email';
 import zxcvbn from 'zxcvbn';
 
 // --- Simple in-memory rate limit (replace with Redis/Upstash in prod) ---
