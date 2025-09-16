@@ -1,3 +1,4 @@
+// src/app/api/acumatica/ingest-batch/route.js
 import { NextResponse } from "next/server";
 import AcumaticaService from "@/lib/acumatica/auth/acumaticaService";
 import fetchOrdersWithDetails from "@/lib/acumatica/fetch/fetchOrdersWithDetails";
@@ -5,6 +6,7 @@ import filterOrders from "@/lib/acumatica/filter/filterOrders";
 import { upsertOrderSummariesForBAID, purgeOldOrders } from "@/lib/acumatica/write/writeOrders.js";
 import OrderDetails from "@/lib/acumatica/write/writeOrderDetails";
 import writeOrderLinesBulk from "@/lib/acumatica/write/writeOrderLinesBulk";
+import { isCronAuthorized } from "@/lib/cron/auth";
 
 function nowMs() { return Number(process.hrtime.bigint() / 1_000_000n); }
 
@@ -25,17 +27,18 @@ function buildExtrasByNbr(rawRows) {
 
 async function runForBAID(restService, baid) {
   const t0 = nowMs();
-  // Fetch (batched with Details)
+
+  // 1) Fetch (batched)
   const tF1 = nowMs();
   const rawRows = await fetchOrdersWithDetails(restService, baid);
   const tF2 = nowMs();
 
-  // Shape summaries
+  // 2) Shape summaries
   const tS1 = nowMs();
   const { kept, counts, cutoff } = filterOrders(rawRows);
   const tS2 = nowMs();
 
-  // Upsert summaries (extras)
+  // 3) Upsert summaries (extras)
   const tW1 = nowMs();
   const extrasByNbr = buildExtrasByNbr(rawRows);
   const { inserted, updated, inactivated } = await upsertOrderSummariesForBAID(
@@ -43,22 +46,24 @@ async function runForBAID(restService, baid) {
   );
   const tW2 = nowMs();
 
-  // 1:1 details
+  // 4) 1:1 details
   const tD1 = nowMs();
-  const detailsRes = await OrderDetails.upsertOrderDetailsForBAID(baid, kept, rawRows, { concurrency: 10 });
+  const detailsRes = await OrderDetails.upsertOrderDetailsForBAID(
+    baid, kept, rawRows, { concurrency: 10 }
+  );
   const tD2 = nowMs();
 
-  // 1:M lines (bulk)
+  // 5) 1:M lines (bulk)
   const tL1 = nowMs();
   const linesRes = await writeOrderLinesBulk(baid, rawRows, { chunkSize: 5000 });
   const tL2 = nowMs();
 
-  // Purge
+  // 6) Purge
   const tP1 = nowMs();
   const purged = await purgeOldOrders(cutoff);
   const tP2 = nowMs();
 
-  const result = {
+  return {
     baid,
     erp: counts,
     db: {
@@ -77,10 +82,9 @@ async function runForBAID(restService, baid) {
       totalMs: +(nowMs() - t0).toFixed(1),
     },
   };
-  return result;
 }
 
-// concurrency runner (unchanged)
+// simple bounded concurrency runner with tiny jitter
 async function runWithConcurrency(items, limit, worker) {
   let i = 0;
   const runners = Array.from({ length: Math.min(limit, items.length) }, async () => {
@@ -107,22 +111,16 @@ function resolveBAIDs(body, req) {
   return fromEnv.length ? fromEnv : ["BA0001225","BA0002473"];
 }
 
-function authOk(req) {
-  const headerAuth = req.headers.get("authorization") || "";
-  const { searchParams } = new URL(req.url);
-  const queryToken = searchParams.get("token") || "";
-  return (
-    headerAuth === `Bearer ${process.env.CRON_SECRET}` ||
-    (queryToken && queryToken === process.env.CRON_SECRET)
-  );
-}
-
+// POST — manual/admin-triggered
 export async function POST(req) {
   try {
     const body = await req.json().catch(() => ({}));
     const baids = resolveBAIDs(body, req);
     if (!baids.length) {
-      return NextResponse.json({ message: "Provide { baids: [...] } or SYNC_BAIDS/baids=..." }, { status: 400 });
+      return NextResponse.json(
+        { message: "Provide { baids: [...] } or SYNC_BAIDS/baids=..." },
+        { status: 400 }
+      );
     }
 
     const restService = new AcumaticaService(
@@ -150,13 +148,22 @@ export async function POST(req) {
   }
 }
 
+// GET — for Vercel Cron (x-vercel-cron) or manual (?token= / Bearer)
 export async function GET(req) {
   try {
-    if (!authOk(req)) return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
     const { searchParams } = new URL(req.url);
+    if (!isCronAuthorized(req, searchParams)) {
+      return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
+    }
+
     const qs = searchParams.get("baids");
     const body = qs ? { baids: qs.split(",") } : {};
-    return POST(new Request(req.url, { method: "POST", body: JSON.stringify(body), headers: req.headers }));
+    // Reuse POST implementation for GET
+    return POST(new Request(req.url, {
+      method: "POST",
+      body: JSON.stringify(body),
+      headers: req.headers
+    }));
   } catch (e) {
     console.error("ingest-batch GET error:", e);
     return NextResponse.json({ message: "Server error", error: String(e?.message || e) }, { status: 500 });
