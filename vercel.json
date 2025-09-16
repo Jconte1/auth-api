@@ -2,7 +2,7 @@
     "crons": [
         {
             "path": "/api/acumatica/ingest-batch",
-            "schedule": "0 08 * * *"
+            "schedule": "0 09 * * *"
         }
     ]
 }
