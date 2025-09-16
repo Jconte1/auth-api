@@ -2,7 +2,10 @@
 export function isCronAuthorized(req, searchParams) {
   const headerAuth = req.headers.get("authorization") || "";
   const queryToken = searchParams.get("token") || "";
-  const okByHeader = headerAuth === `Bearer ${process.env.CRON_SECRET}`;
-  const okByQuery  = queryToken && queryToken === process.env.CRON_SECRET;
-  return okByHeader || okByQuery;
+  const fromVercelCron = req.headers.get("x-vercel-cron") === "1";
+  return (
+    fromVercelCron ||
+    headerAuth === `Bearer ${process.env.CRON_SECRET}` ||
+    (queryToken && queryToken === process.env.CRON_SECRET)
+  );
 }
