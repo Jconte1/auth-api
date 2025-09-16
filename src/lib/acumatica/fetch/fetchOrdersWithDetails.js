@@ -52,6 +52,7 @@ export default async function fetchOrdersWithDetails(
       `RequestedOn ge ${cutoffLiteral}`,
       `Status ne 'Canceled'`,
       `Status ne 'On Hold'`,
+      `Status ne 'Completed'`,
     ];
     if (useSince && sinceLiteral) {
       filterParts.push(`LastModifiedDateTime ge ${sinceLiteral}`);

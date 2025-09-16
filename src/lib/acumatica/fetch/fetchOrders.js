@@ -12,7 +12,7 @@ export default async function fetchOrders(restService, baid) {
     params.set(
         "$filter",
         `CustomerID eq '${baid}' and RequestedOn ge ${cutoffLiteral} and ` +
-        `Status ne 'Canceled' and Status ne 'On Hold'`
+        `Status ne 'Canceled' and Status ne 'On Hold' Status ne 'Completed'`
     );
     params.set("$select", "OrderNbr,Status,LocationID,RequestedOn,Terms,OrderTotal,UnpaidBalance,ShipVia,AddressLine1,AddressLine2,City,State,PostalCode,JobName,DeliveryEmail");
     params.set("$custom", "Document.AttributeSITENUMBER,Document.AttributeOSCONTACT");
