@@ -27,7 +27,7 @@ export async function POST(req) {
     }
 
     // 2. Find user and associated accounts
-    const user = await prisma.user.findUnique({
+    const user = await prisma.users.findUnique({
       where: { email },
       include: { accounts: true }
     });

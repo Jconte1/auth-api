@@ -1,9 +1,9 @@
-// src/app/api/acumatica/ingest-order-summaries/route.js
+// src/app/api/acumatica/ingest-payment-info/route.js
 import { NextResponse } from "next/server";
 import AcumaticaService from "@/lib/acumatica/auth/acumaticaService";
-import fetchOrderSummaries from "@/lib/acumatica/fetch/fetchOrderSummaries";
-import filterOrders from "@/lib/acumatica/filter/filterOrders";
-import { upsertOrderSummariesForBAID, purgeOldOrders } from "@/lib/acumatica/write/writeOrderSummaries";
+import fetchPaymentInfo from "@/lib/acumatica/fetch/fetchPaymentInfo";
+import writePaymentInfo from "@/lib/acumatica/write/writePaymentInfo";
+import prisma from "@/lib/prisma/prisma";
 
 function nowMs() { return Number(process.hrtime.bigint() / 1_000_000n); }
 
@@ -46,35 +46,48 @@ async function runWithConcurrency(items, limit, worker) {
 async function handleOne(restService, baid) {
   const t0 = nowMs();
 
-  // 1) Fetch summaries (paged, no Details)
+  // 0) Get order numbers from summaries (active, last 1 year)
+  const cutoff = new Date();
+  cutoff.setFullYear(cutoff.getFullYear() - 1);
+  const summaries = await prisma.erpOrderSummary.findMany({
+    where: { baid, isActive: true, deliveryDate: { gte: cutoff } },
+    select: { orderNbr: true },
+  });
+  const orderNbrs = summaries.map(s => s.orderNbr);
+  console.log(`[ingest-payment-info] baid=${baid} activeSummaries=${orderNbrs.length}`);
+
+  if (!orderNbrs.length) {
+    console.log(`[ingest-payment-info] baid=${baid} skip (no active orders)`);
+    return {
+      baid,
+      erp: { totalFromERP: 0 },
+      db: { processedOrders: 0, paymentUpserts: 0, ms: 0 },
+      inspectedOrders: 0,
+      timing: { erpFetchMs: 0, dbWritesMs: 0, totalMs: +(nowMs() - t0).toFixed(1) },
+      note: "No active orders in the last year — nothing to fetch.",
+    };
+  }
+
+  // 1) Fetch payment fields for those orders
   const tF1 = nowMs();
-  const rawRows = await fetchOrderSummaries(restService, baid);
+  const rows = await fetchPaymentInfo(restService, baid, { orderNbrs });
   const tF2 = nowMs();
+  console.log(`[ingest-payment-info] baid=${baid} fetchedRows=${Array.isArray(rows) ? rows.length : 0} inspectedOrders=${orderNbrs.length}`);
 
-  // 2) Filter/dedupe/1-year window
-  const tS1 = nowMs();
-  const { kept, counts, cutoff } = filterOrders(rawRows);
-  const tS2 = nowMs();
-
-  // 3) Upsert summaries (with shipVia/jobName)
+  // 2) Upsert into DB
   const tW1 = nowMs();
-  const { inserted, updated, inactivated } = await upsertOrderSummariesForBAID(baid, kept, cutoff, { concurrency: 10 });
+  const result = await writePaymentInfo(baid, rows, { concurrency: 10 });
   const tW2 = nowMs();
-
-  // 4) Purge outside window / cancelled etc.
-  const tP1 = nowMs();
-  const purged = await purgeOldOrders(cutoff);
-  const tP2 = nowMs();
+  console.log(`[ingest-payment-info] baid=${baid} wrote paymentUpserts=${result.paymentUpserts ?? 0}`);
 
   return {
     baid,
-    erp: counts,
-    db: { inserted, updated, inactivated, purged },
+    erp: { totalFromERP: Array.isArray(rows) ? rows.length : 0 },
+    db: result,
+    inspectedOrders: orderNbrs.length,
     timing: {
       erpFetchMs: +(tF2 - tF1).toFixed(1),
-      shapeMs: +(tS2 - tS1).toFixed(1),
       dbWritesMs: +(tW2 - tW1).toFixed(1),
-      purgeMs: +(tP2 - tP1).toFixed(1),
       totalMs: +(nowMs() - t0).toFixed(1),
     },
   };
@@ -106,7 +119,7 @@ export async function POST(req) {
 
     return NextResponse.json({ count: results.length, concurrency: limit, totalMs, results });
   } catch (e) {
-    console.error("ingest-order-summaries POST error:", e);
+    console.error("ingest-payment-info POST error:", e);
     return NextResponse.json({ message: "Server error", error: String(e?.message || e) }, { status: 500 });
   }
 }
@@ -119,7 +132,7 @@ export async function GET(req) {
     const body = qs ? { baids: qs.split(",") } : {};
     return POST(new Request(req.url, { method: "POST", body: JSON.stringify(body), headers: req.headers }));
   } catch (e) {
-    console.error("ingest-order-summaries GET error:", e);
+    console.error("ingest-payment-info GET error:", e);
     return NextResponse.json({ message: "Server error", error: String(e?.message || e) }, { status: 500 });
   }
 }

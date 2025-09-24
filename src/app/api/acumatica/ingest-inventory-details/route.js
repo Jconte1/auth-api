@@ -1,9 +1,8 @@
-// src/app/api/acumatica/ingest-order-summaries/route.js
 import { NextResponse } from "next/server";
 import AcumaticaService from "@/lib/acumatica/auth/acumaticaService";
-import fetchOrderSummaries from "@/lib/acumatica/fetch/fetchOrderSummaries";
-import filterOrders from "@/lib/acumatica/filter/filterOrders";
-import { upsertOrderSummariesForBAID, purgeOldOrders } from "@/lib/acumatica/write/writeOrderSummaries";
+import fetchInventoryDetails from "@/lib/acumatica/fetch/fetchInventoryDetails";
+import writeInventoryDetails from "@/lib/acumatica/write/writeInventoryDetails";
+import prisma from "@/lib/prisma/prisma";
 
 function nowMs() { return Number(process.hrtime.bigint() / 1_000_000n); }
 
@@ -46,35 +45,79 @@ async function runWithConcurrency(items, limit, worker) {
 async function handleOne(restService, baid) {
   const t0 = nowMs();
 
-  // 1) Fetch summaries (paged, no Details)
+  // pick candidate orders from summaries (active within 1y)
+  const cutoff = new Date();
+  cutoff.setFullYear(cutoff.getFullYear() - 1);
+  const summaries = await prisma.erpOrderSummary.findMany({
+    where: { baid, isActive: true, deliveryDate: { gte: cutoff } },
+    select: { orderNbr: true },
+  });
+  const orderNbrs = summaries.map(s => s.orderNbr);
+  console.log(`[inventoryRoute] baid=${baid} candidateOrders=${orderNbrs.length}`);
+
+  if (!orderNbrs.length) {
+    return {
+      baid,
+      erp: { totalFromERP: 0 },
+      db: {
+        ordersConsidered: 0,
+        ordersAffected: 0,
+        linesKept: 0,
+        linesDeleted: 0,
+        linesInserted: 0,
+        scan: { ordersScanned: 0, ordersWithoutNbr: 0, ordersWithNoDetails: 0, linesKept: 0, linesDroppedEmpty: 0 },
+      },
+      inspectedOrders: 0,
+      timing: { erpFetchMs: 0, dbLinesMs: 0, totalMs: +(nowMs() - t0).toFixed(1) },
+      note: "No active orders in the last year — nothing to fetch.",
+    };
+  }
+
+  let rows = [];
+  let fetchErr = null;
   const tF1 = nowMs();
-  const rawRows = await fetchOrderSummaries(restService, baid);
+  try {
+    rows = await fetchInventoryDetails(
+      restService,
+      baid,
+      orderNbrs,
+      {
+        batchSize: Number(process.env.LINES_BATCH_SIZE || 24),
+        pool: Number(process.env.LINES_POOL || 12),
+        maxSockets: Number(process.env.LINES_MAX_SOCKETS || 16),
+        maxUrl: Number(process.env.ACUMATICA_MAX_URL || 7000),
+        retries: Number(process.env.LINES_RETRIES || 3),
+      }
+    );
+  } catch (e) {
+    fetchErr = String(e?.message || e);
+    console.error(`[inventoryRoute] fetch error baid=${baid}:`, fetchErr);
+  }
   const tF2 = nowMs();
 
-  // 2) Filter/dedupe/1-year window
-  const tS1 = nowMs();
-  const { kept, counts, cutoff } = filterOrders(rawRows);
-  const tS2 = nowMs();
+  if (fetchErr) {
+    return {
+      baid,
+      error: fetchErr,
+      erp: { totalFromERP: 0 },
+      db: null,
+      inspectedOrders: orderNbrs.length,
+      timing: { erpFetchMs: +(tF2 - tF1).toFixed(1), dbLinesMs: 0, totalMs: +(nowMs() - t0).toFixed(1) },
+    };
+  }
 
-  // 3) Upsert summaries (with shipVia/jobName)
   const tW1 = nowMs();
-  const { inserted, updated, inactivated } = await upsertOrderSummariesForBAID(baid, kept, cutoff, { concurrency: 10 });
+  const result = await writeInventoryDetails(baid, rows, { chunkSize: 5000 });
   const tW2 = nowMs();
-
-  // 4) Purge outside window / cancelled etc.
-  const tP1 = nowMs();
-  const purged = await purgeOldOrders(cutoff);
-  const tP2 = nowMs();
 
   return {
     baid,
-    erp: counts,
-    db: { inserted, updated, inactivated, purged },
+    erp: { totalFromERP: Array.isArray(rows) ? rows.length : 0 },
+    db: result,
+    inspectedOrders: orderNbrs.length,
     timing: {
       erpFetchMs: +(tF2 - tF1).toFixed(1),
-      shapeMs: +(tS2 - tS1).toFixed(1),
-      dbWritesMs: +(tW2 - tW1).toFixed(1),
-      purgeMs: +(tP2 - tP1).toFixed(1),
+      dbLinesMs: +(tW2 - tW1).toFixed(1),
       totalMs: +(nowMs() - t0).toFixed(1),
     },
   };
@@ -95,7 +138,7 @@ export async function POST(req) {
     );
     await restService.getToken();
 
-    const limit = Math.max(1, Number(process.env.BATCH_CONCURRENCY || 3));
+    const limit = Math.max(1, Number(process.env.INVENTORY_BAID_CONCURRENCY || 1));
     const results = [];
     await runWithConcurrency(baids, limit, async (baid) => {
       const r = await handleOne(restService, baid);
@@ -106,7 +149,7 @@ export async function POST(req) {
 
     return NextResponse.json({ count: results.length, concurrency: limit, totalMs, results });
   } catch (e) {
-    console.error("ingest-order-summaries POST error:", e);
+    console.error("ingest-inventory-details POST error:", e);
     return NextResponse.json({ message: "Server error", error: String(e?.message || e) }, { status: 500 });
   }
 }
@@ -119,7 +162,7 @@ export async function GET(req) {
     const body = qs ? { baids: qs.split(",") } : {};
     return POST(new Request(req.url, { method: "POST", body: JSON.stringify(body), headers: req.headers }));
   } catch (e) {
-    console.error("ingest-order-summaries GET error:", e);
+    console.error("ingest-inventory-details GET error:", e);
     return NextResponse.json({ message: "Server error", error: String(e?.message || e) }, { status: 500 });
   }
 }

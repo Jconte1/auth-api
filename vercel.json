@@ -1,8 +1,20 @@
 {
     "crons": [
         {
-            "path": "/api/acumatica/ingest-batch",
+            "path": "/api/acumatica/ingest-order-summaries",
             "schedule": "0 09 * * *"
+        },
+        {
+            "path": "/api/acumatica/ingest-address-contact",
+            "schedule": "10 09 * * *"
+        },
+        {
+            "path": "/api/acumatica/ingest-payment-info",
+            "schedule": "20 09 * * *"
+        },
+        {
+            "path": "/api/acumatica/ingest-inventory-details",
+            "schedule": "30 09 * * *"
         }
     ]
 }

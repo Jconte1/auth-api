@@ -12,11 +12,15 @@ export default function shapeAndFilter(rawRows) {
         const status = row?.Status?.value ?? row?.Status ?? null;
         const locationId = row?.LocationID?.value ?? row?.LocationID ?? null;
         const requestedOnRaw = row?.RequestedOn?.value ?? row?.RequestedOn ?? null;
-
+        const shipVia = row?.ShipVia?.value ?? row?.ShipVia ?? null;      // ← added
+        const jobName = row?.JobName?.value ?? row?.JobName ?? null;
+        const customerName = row?.CustomerName?.value ?? row?.CustomerName ?? null;    // ← added
+        const warehouse = row?.warehouse?.value ?? row?.warehouse ?? "";
         if (!orderNbr || !status || !locationId || !requestedOnRaw) {
             droppedMissing++; continue;
         }
         if (String(orderNbr).startsWith("QT")) { droppedExcluded++; continue; }
+        if (String(orderNbr).startsWith("RMA")) { droppedExcluded++; continue; }
         const requestedOn = new Date(requestedOnRaw);
         if (Number.isNaN(requestedOn.getTime())) { droppedMissing++; continue; }
 
@@ -25,6 +29,10 @@ export default function shapeAndFilter(rawRows) {
             status: String(status),
             locationId: String(locationId),
             requestedOn: requestedOn.toISOString(),
+            shipVia: shipVia != null ? String(shipVia) : null,            // ← added
+            jobName: jobName != null ? String(jobName) : null,
+            customerName: customerName != null ? String(customerName) : null,
+            warehouse: warehouse != "" ? String(warehouse) : "",       // ← added
         });
     }
 

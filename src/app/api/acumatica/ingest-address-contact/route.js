@@ -1,9 +1,10 @@
-// src/app/api/acumatica/ingest-order-summaries/route.js
+// src/app/api/acumatica/ingest-address-contact/route.js
 import { NextResponse } from "next/server";
 import AcumaticaService from "@/lib/acumatica/auth/acumaticaService";
-import fetchOrderSummaries from "@/lib/acumatica/fetch/fetchOrderSummaries";
-import filterOrders from "@/lib/acumatica/filter/filterOrders";
-import { upsertOrderSummariesForBAID, purgeOldOrders } from "@/lib/acumatica/write/writeOrderSummaries";
+import fetchAddressContact from "@/lib/acumatica/fetch/fetchAddressContact";
+import writeAddressContact from "@/lib/acumatica/write/writeAddressContact";
+import prisma from "@/lib/prisma/prisma";
+import { oneYearAgoDenver, toDenverDateTimeOffsetLiteral } from "@/lib/time/denver"; 
 
 function nowMs() { return Number(process.hrtime.bigint() / 1_000_000n); }
 
@@ -46,35 +47,45 @@ async function runWithConcurrency(items, limit, worker) {
 async function handleOne(restService, baid) {
   const t0 = nowMs();
 
-  // 1) Fetch summaries (paged, no Details)
+  // 0) Determine which orders to fetch (active, last 1 year — use Denver cutoff like summaries)
+  const cutoffDenver = oneYearAgoDenver(new Date());                                    // ⬅️ add
+  const cutoffLiteral = toDenverDateTimeOffsetLiteral(cutoffDenver);                    // ⬅️ add
+
+  const summaries = await prisma.erpOrderSummary.findMany({
+    where: { baid, isActive: true, deliveryDate: { gte: cutoffDenver } },               // ⬅️ use cutoffDenver
+    select: { orderNbr: true },
+  });
+  const orderNbrs = summaries.map(s => s.orderNbr);
+
+  if (!orderNbrs.length) {
+    return {
+      baid,
+      erp: { totalFromERP: 0 },
+      db: { addressesUpserted: 0, contactsUpserted: 0 },
+      inspectedOrders: 0,
+      timing: { erpFetchMs: 0, dbWritesMs: 0, totalMs: +(nowMs() - t0).toFixed(1) },
+      note: "No active orders in the last year — nothing to fetch.",
+    };
+  }
+
+  // 1) Fetch address/contact for those orders (tell fetch about the cutoff)
   const tF1 = nowMs();
-  const rawRows = await fetchOrderSummaries(restService, baid);
+  const rows = await fetchAddressContact(restService, baid, { orderNbrs, cutoffLiteral }); // ⬅️ pass cutoffLiteral
   const tF2 = nowMs();
 
-  // 2) Filter/dedupe/1-year window
-  const tS1 = nowMs();
-  const { kept, counts, cutoff } = filterOrders(rawRows);
-  const tS2 = nowMs();
-
-  // 3) Upsert summaries (with shipVia/jobName)
+  // 2) Write
   const tW1 = nowMs();
-  const { inserted, updated, inactivated } = await upsertOrderSummariesForBAID(baid, kept, cutoff, { concurrency: 10 });
+  const result = await writeAddressContact(baid, rows, { concurrency: 10 });
   const tW2 = nowMs();
-
-  // 4) Purge outside window / cancelled etc.
-  const tP1 = nowMs();
-  const purged = await purgeOldOrders(cutoff);
-  const tP2 = nowMs();
 
   return {
     baid,
-    erp: counts,
-    db: { inserted, updated, inactivated, purged },
+    erp: { totalFromERP: Array.isArray(rows) ? rows.length : 0 },
+    db: result,
+    inspectedOrders: orderNbrs.length,
     timing: {
       erpFetchMs: +(tF2 - tF1).toFixed(1),
-      shapeMs: +(tS2 - tS1).toFixed(1),
       dbWritesMs: +(tW2 - tW1).toFixed(1),
-      purgeMs: +(tP2 - tP1).toFixed(1),
       totalMs: +(nowMs() - t0).toFixed(1),
     },
   };
@@ -84,7 +95,12 @@ export async function POST(req) {
   try {
     const body = await req.json().catch(() => ({}));
     const baids = resolveBAIDs(body, req);
-    if (!baids.length) return NextResponse.json({ message: "Provide { baids:[...] } or SYNC_BAIDS/baids=..." }, { status: 400 });
+    if (!baids.length) {
+      return NextResponse.json(
+        { message: "Provide { baids:[...] } or SYNC_BAIDS/baids=..." },
+        { status: 400 }
+      );
+    }
 
     const restService = new AcumaticaService(
       process.env.ACUMATICA_BASE_URL,
@@ -106,7 +122,7 @@ export async function POST(req) {
 
     return NextResponse.json({ count: results.length, concurrency: limit, totalMs, results });
   } catch (e) {
-    console.error("ingest-order-summaries POST error:", e);
+    console.error("ingest-address-contact POST error:", e);
     return NextResponse.json({ message: "Server error", error: String(e?.message || e) }, { status: 500 });
   }
 }
@@ -119,7 +135,7 @@ export async function GET(req) {
     const body = qs ? { baids: qs.split(",") } : {};
     return POST(new Request(req.url, { method: "POST", body: JSON.stringify(body), headers: req.headers }));
   } catch (e) {
-    console.error("ingest-order-summaries GET error:", e);
+    console.error("ingest-address-contact GET error:", e);
     return NextResponse.json({ message: "Server error", error: String(e?.message || e) }, { status: 500 });
   }
 }
