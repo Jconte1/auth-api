@@ -1,4 +1,5 @@
 import prisma from "@/lib/prisma/prisma";
+import deriveOrderPmAssignment from "@/services/assignment/deriveOrderPmAssignment";
 
 export default async function writeAddressContact(
   baid,
@@ -87,6 +88,9 @@ export default async function writeAddressContact(
           update: { baid, orderNbr: orderNbrStr, ...contact, updatedAt: now },
         });
         contactUpserts += 1;
+
+        // fire-and-forget: derive PM assignment from deliveryEmail after contact is saved
+        deriveOrderPmAssignment(orderSummaryId).catch(() => {});
       });
     }
   }

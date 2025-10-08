@@ -29,11 +29,11 @@ export async function POST(req) {
     const { email, name, sub: googleId, picture } = payload;
 
     // 2. Find or create user
-    let user = await prisma.user.findUnique({ where: { email } });
+    let user = await prisma.users.findUnique({ where: { email } });
 
     if (!user) {
       // Create user and Google account entry
-      user = await prisma.user.create({
+      user = await prisma.users.create({
         data: {
           name: name || '',
           email,

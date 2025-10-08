@@ -10,7 +10,7 @@ export async function POST(req) {
     if (!email) return error('Missing email', 400);
 
     // 1. Find user
-    const user = await prisma.user.findUnique({ where: { email } });
+    const user = await prisma.users.findUnique({ where: { email } });
     if (!user) return error('No account with that email', 404);
 
     // 2. If already verified, no need to resend
@@ -19,7 +19,7 @@ export async function POST(req) {
     }
 
     // 3. Generate new verification token (or reuse old unexpired one)
-    let verification = await prisma.verification.findFirst({
+    let verification = await prisma.verifications.findFirst({
       where: {
         identifier: email,
         expiresAt: { gte: new Date() }, // not expired
@@ -31,7 +31,7 @@ export async function POST(req) {
       token = verification.value;
     } else {
       token = crypto.randomBytes(32).toString('hex');
-      await prisma.verification.create({
+      await prisma.verifications.create({
         data: {
           identifier: email,
           value: token,

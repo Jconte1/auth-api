@@ -37,7 +37,7 @@ export async function POST(req) {
     }
 
     // 2) Find a still-valid verification row
-    const verification = await prisma.verification.findFirst({
+    const verification = await prisma.verifications.findFirst({
       where: {
         identifier: email,
         expiresAt: { gte: new Date() },
@@ -55,7 +55,7 @@ export async function POST(req) {
     }
 
     // 3) Find user
-    const user = await prisma.user.findUnique({ where: { email } });
+    const user = await prisma.users.findUnique({ where: { email } });
     if (!user) return error('User not found.', 404);
 
     // 4) Hash new password
@@ -68,7 +68,7 @@ export async function POST(req) {
     });
 
     // 6) Delete the used OTP
-    await prisma.verification.delete({ where: { id: verification.id } });
+    await prisma.verifications.delete({ where: { id: verification.id } });
 
     // 7) Done
     return success({ message: 'Password reset successful! You can now log in with your new password.' });

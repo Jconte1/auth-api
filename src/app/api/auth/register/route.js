@@ -91,7 +91,7 @@ export async function POST(req) {
     }
 
     // 4) Check if user already exists (normalized email)
-    const exists = await prisma.user.findUnique({ where: { email: normalizedEmail } });
+    const exists = await prisma.users.findUnique({ where: { email: normalizedEmail } });
     if (exists) return error('Email already registered', 409);
 
     // 5) Hash password — argon2id with explicit params
@@ -103,7 +103,7 @@ export async function POST(req) {
     });
 
     // 6) Create user and credentials account (transactional)
-    const user = await prisma.user.create({
+    const user = await prisma.users.create({
       data: {
         name: normalizedName,
         email: normalizedEmail,
@@ -127,7 +127,7 @@ export async function POST(req) {
     const token = crypto.randomBytes(32).toString('hex');
     const expires = new Date(Date.now() + 1000 * 60 * 60 * 24); // 24h
 
-    await prisma.verification.create({
+    await prisma.verifications.create({
       data: {
         identifier: normalizedEmail,
         value: token,

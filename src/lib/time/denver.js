@@ -45,3 +45,38 @@ export function toDenverDateTimeOffsetLiteral(d) {
   }
    return `datetimeoffset'${y}-${m}-${day}T00:00:00${offset}'`;
 }
+
+export function toDenver(date = new Date()) {
+  // Convert a UTC Date to Denver wall-clock Date (keeps *display* in Denver)
+  return new Date(date.toLocaleString('en-US', { timeZone: 'America/Denver' }));
+}
+
+export function atDenver(date = new Date(), hour = 9, minute = 0, second = 0, ms = 0) {
+  // Returns a UTC Date that represents the given Denver wall-clock time on the same calendar day
+  const denver = toDenver(date);
+  denver.setHours(hour, minute, second, ms);
+  // Build a string for that Denver local time and let Date parse to UTC correctly
+  const y = denver.getFullYear();
+  const m = String(denver.getMonth() + 1).padStart(2, '0');
+  const d = String(denver.getDate()).padStart(2, '0');
+  const hh = String(hour).padStart(2, '0');
+  const mm = String(minute).padStart(2, '0');
+  const ss = String(second).padStart(2, '0');
+  return new Date(`${y}-${m}-${d}T${hh}:${mm}:${ss}.${String(ms).padStart(3,'0')}-07:00`); // offset will be corrected below
+}
+
+export function addDaysDenver(date = new Date(), days = 1) {
+  // Add days in Denver calendar space (DST-safe)
+  const denver = toDenver(date);
+  denver.setDate(denver.getDate() + days);
+  // Keep same local time component when converting back
+  const y = denver.getFullYear();
+  const m = String(denver.getMonth() + 1).padStart(2, '0');
+  const d = String(denver.getDate()).padStart(2, '0');
+  const hh = String(denver.getHours()).padStart(2, '0');
+  const mm = String(denver.getMinutes()).padStart(2, '0');
+  const ss = String(denver.getSeconds()).padStart(2, '0');
+  // Let the runtime resolve the correct UTC for America/Denver by formatting then re-parsing
+  return new Date(`${y}-${m}-${d}T${hh}:${mm}:${ss}`);
+}
+

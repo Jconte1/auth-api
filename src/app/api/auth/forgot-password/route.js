@@ -27,7 +27,7 @@ export async function POST(req) {
     if (!emailNorm) return error('Missing email.', 400);
 
     // Find user (assuming emails are stored normalized to lowercase)
-    const user = await prisma.user.findUnique({ where: { email: emailNorm } });
+    const user = await prisma.users.findUnique({ where: { email: emailNorm } });
 
     // Always respond the same to avoid enumeration
     if (!user || !user.emailVerified) {
@@ -45,8 +45,8 @@ export async function POST(req) {
 
     // Replace any existing active tokens for this identifier+type
     await prisma.$transaction([
-      prisma.verification.deleteMany({ where: { identifier: emailNorm} }), // add "type: TYPE " after adding to schema
-      prisma.verification.create({
+      prisma.verifications.deleteMany({ where: { identifier: emailNorm} }), // add "type: TYPE " after adding to schema
+      prisma.verifications.create({
         data: {
           identifier: emailNorm,
           // type: TYPE,

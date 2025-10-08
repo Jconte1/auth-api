@@ -1,49 +1,40 @@
-import jwt from 'jsonwebtoken';
+// backend: app/api/me/route.js
+import { NextResponse } from 'next/server';
 import prisma from '@/lib/prisma/prisma';
-import success from '@/lib/auth-helpers/success';
-import error from '@/lib/auth-helpers/error';
-
-const JWT_SECRET = process.env.JWT_SECRET || 'dev_secret';
-
-export async function OPTIONS(req) {
-  return new Response(null, {
-    status: 204,
-    headers: {
-      "Access-Control-Allow-Origin": process.env.FRONTEND_URL || "http://localhost:3000",
-      "Access-Control-Allow-Methods": "POST, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type, Authorization",
-    },
-  });
-}
+import requireAuth from '../requireAuth.js/route';
 
 export async function GET(req) {
-  try {
-    // 1. Check Authorization header for Bearer token
-    const authHeader = req.headers.get('authorization');
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return error('Missing or invalid Authorization header', 401);
-    }
-    const token = authHeader.split(' ')[1];
+  const auth = requireAuth(req);
+  if (auth instanceof Response) return auth; // 401/403 if not authorized
+  const { userId } = auth;
 
-    // 2. Verify JWT
-    let decoded;
-    try {
-      decoded = jwt.verify(token, JWT_SECRET);
-    } catch (err) {
-      return error('Invalid or expired token', 401);
-    }
-
-    // 3. Find user in database
-    const user = await prisma.user.findUnique({
-      where: { id: decoded.userId },
-      select: { id: true, email: true, name: true, image: true, emailVerified: true }
-    });
-    if (!user) return error('User not found', 404);
-
-    // 4. Return user info (never return sensitive fields!)
-    return success({ user });
-
-  } catch (err) {
-    return error(err.message || 'Failed to get user info', 500);
+  const user = await prisma.users.findUnique({
+    where: { id: userId },
+    select: { id: true, email: true, name: true },
+  });
+  if (!user) {
+    return NextResponse.json({ ok: false, error: 'NO_USER' }, { status: 404 });
   }
+
+  const rows = await prisma.accountUserRole.findMany({
+    where: { userId, isActive: true },
+    select: { baid: true, role: true },
+    orderBy: [{ baid: 'asc' }],
+  });
+
+  // Fold roles by BAID: [{ baid, roles: ['ADMIN','PM'] }, ...]
+  const byBaid = new Map();
+  for (const r of rows) {
+    if (!byBaid.has(r.baid)) byBaid.set(r.baid, new Set());
+    byBaid.get(r.baid).add(r.role);
+  }
+  const baids = Array.from(byBaid.entries()).map(([baid, set]) => ({
+    baid, roles: Array.from(set),
+  }));
+
+  return NextResponse.json({
+    ok: true,
+    user: { id: user.id, email: user.email, name: user.name },
+    baids,
+  });
 }

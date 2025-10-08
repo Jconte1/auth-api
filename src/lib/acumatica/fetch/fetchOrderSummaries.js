@@ -29,6 +29,9 @@ export default async function fetchOrderSummaries(
   const base = `${restService.baseUrl}/entity/CustomEndpoint/24.200.001/SalesOrder`;
   const agent = new https.Agent({ keepAlive: true, maxSockets: 8 });
 
+  // TODO
+// ADD 6 WEEK CONFIRM AND 2 WEEK CONFIRM BOOLEAN 
+
   const select = [
     "OrderNbr",
     "Status",

@@ -4,7 +4,7 @@ import AcumaticaService from "@/lib/acumatica/auth/acumaticaService";
 import fetchAddressContact from "@/lib/acumatica/fetch/fetchAddressContact";
 import writeAddressContact from "@/lib/acumatica/write/writeAddressContact";
 import prisma from "@/lib/prisma/prisma";
-import { oneYearAgoDenver, toDenverDateTimeOffsetLiteral } from "@/lib/time/denver"; 
+import { oneYearAgoDenver, toDenverDateTimeOffsetLiteral } from "@/lib/time/denver";
 
 function nowMs() { return Number(process.hrtime.bigint() / 1_000_000n); }
 
@@ -16,19 +16,6 @@ function authOk(req) {
     headerAuth === `Bearer ${process.env.CRON_SECRET}` ||
     (queryToken && queryToken === process.env.CRON_SECRET)
   );
-}
-
-function resolveBAIDs(body, req) {
-  if (Array.isArray(body?.baids) && body.baids.length) {
-    return body.baids.map(s => String(s).trim()).filter(Boolean);
-  }
-  const { searchParams } = new URL(req.url);
-  const qs = searchParams.get("baids");
-  if (qs) return qs.split(",").map(s => s.trim()).filter(Boolean);
-
-  const envList = process.env.SYNC_BAIDS || "";
-  const fromEnv = envList.split(",").map(s => s.trim()).filter(Boolean);
-  return fromEnv.length ? fromEnv : [];
 }
 
 async function runWithConcurrency(items, limit, worker) {
@@ -44,15 +31,43 @@ async function runWithConcurrency(items, limit, worker) {
   await Promise.all(runners);
 }
 
+async function resolveSingleBAID(req) {
+  const body = await req.json().catch(() => ({}));
+  const { searchParams } = new URL(req.url);
+  const userId = (body.userId ?? searchParams.get("userId")) || null;
+  const email  = (body.email  ?? searchParams.get("email"))  || null;
+  const baidIn = (body.baid   ?? searchParams.get("baid"))   || null;
+
+  if (baidIn && (userId || email)) {
+    const user = userId
+      ? await prisma.users.findUnique({ where: { id: userId }, select: { baid: true } })
+      : await prisma.users.findUnique({ where: { email }, select: { baid: true } });
+    if (!user?.baid) throw new Error("User not found or has no BAID.");
+    if (user.baid !== baidIn) throw new Error("Provided BAID does not match user’s BAID.");
+    return baidIn;
+  }
+  if (baidIn) return baidIn;
+
+  if (userId || email) {
+    const user = userId
+      ? await prisma.users.findUnique({ where: { id: userId }, select: { baid: true } })
+      : await prisma.users.findUnique({ where: { email }, select: { baid: true } });
+    if (!user?.baid) throw new Error("No BAID found for the given userId/email.");
+    return user.baid;
+  }
+
+  throw new Error("Provide baid or a resolvable userId/email.");
+}
+
 async function handleOne(restService, baid) {
   const t0 = nowMs();
 
   // 0) Determine which orders to fetch (active, last 1 year — use Denver cutoff like summaries)
-  const cutoffDenver = oneYearAgoDenver(new Date());                                    // ⬅️ add
-  const cutoffLiteral = toDenverDateTimeOffsetLiteral(cutoffDenver);                    // ⬅️ add
+  const cutoffDenver = oneYearAgoDenver(new Date());
+  const cutoffLiteral = toDenverDateTimeOffsetLiteral(cutoffDenver);
 
   const summaries = await prisma.erpOrderSummary.findMany({
-    where: { baid, isActive: true, deliveryDate: { gte: cutoffDenver } },               // ⬅️ use cutoffDenver
+    where: { baid, isActive: true, deliveryDate: { gte: cutoffDenver } },
     select: { orderNbr: true },
   });
   const orderNbrs = summaries.map(s => s.orderNbr);
@@ -68,9 +83,9 @@ async function handleOne(restService, baid) {
     };
   }
 
-  // 1) Fetch address/contact for those orders (tell fetch about the cutoff)
+  // 1) Fetch address/contact for those orders
   const tF1 = nowMs();
-  const rows = await fetchAddressContact(restService, baid, { orderNbrs, cutoffLiteral }); // ⬅️ pass cutoffLiteral
+  const rows = await fetchAddressContact(restService, baid, { orderNbrs, cutoffLiteral });
   const tF2 = nowMs();
 
   // 2) Write
@@ -93,13 +108,13 @@ async function handleOne(restService, baid) {
 
 export async function POST(req) {
   try {
-    const body = await req.json().catch(() => ({}));
-    const baids = resolveBAIDs(body, req);
-    if (!baids.length) {
-      return NextResponse.json(
-        { message: "Provide { baids:[...] } or SYNC_BAIDS/baids=..." },
-        { status: 400 }
-      );
+    if (!authOk(req)) return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
+
+    let baid;
+    try {
+      baid = await resolveSingleBAID(req);
+    } catch (err) {
+      return NextResponse.json({ message: String(err.message || err) }, { status: 400 });
     }
 
     const restService = new AcumaticaService(
@@ -111,16 +126,11 @@ export async function POST(req) {
     );
     await restService.getToken();
 
-    const limit = Math.max(1, Number(process.env.BATCH_CONCURRENCY || 3));
     const results = [];
-    await runWithConcurrency(baids, limit, async (baid) => {
-      const r = await handleOne(restService, baid);
-      results.push(r);
-    });
-    results.sort((a, b) => baids.indexOf(a.baid) - baids.indexOf(b.baid));
-    const totalMs = results.reduce((acc, r) => acc + r.timing.totalMs, 0);
+    const r = await handleOne(restService, baid);
+    results.push(r);
 
-    return NextResponse.json({ count: results.length, concurrency: limit, totalMs, results });
+    return NextResponse.json({ count: 1, results });
   } catch (e) {
     console.error("ingest-address-contact POST error:", e);
     return NextResponse.json({ message: "Server error", error: String(e?.message || e) }, { status: 500 });
@@ -130,10 +140,7 @@ export async function POST(req) {
 export async function GET(req) {
   try {
     if (!authOk(req)) return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
-    const { searchParams } = new URL(req.url);
-    const qs = searchParams.get("baids");
-    const body = qs ? { baids: qs.split(",") } : {};
-    return POST(new Request(req.url, { method: "POST", body: JSON.stringify(body), headers: req.headers }));
+    return POST(new Request(req.url, { method: "POST", headers: req.headers }));
   } catch (e) {
     console.error("ingest-address-contact GET error:", e);
     return NextResponse.json({ message: "Server error", error: String(e?.message || e) }, { status: 500 });

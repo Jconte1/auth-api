@@ -10,7 +10,7 @@ export async function POST(req) {
     if (!email) return error('Missing email.', 400);
 
     // 1. Find user (case-insensitive, best practice)
-    const user = await prisma.user.findUnique({ where: { email } });
+    const user = await prisma.users.findUnique({ where: { email } });
 
     // Security: Always respond with success
     if (!user || !user.emailVerified) {
@@ -21,7 +21,7 @@ export async function POST(req) {
     const otp = (Math.floor(100000 + Math.random() * 900000)).toString();
 
     // 3. Store OTP in Verification table (type: 'reset-otp')
-    await prisma.verification.create({
+    await prisma.verifications.create({
       data: {
         identifier: email,
         value: otp,

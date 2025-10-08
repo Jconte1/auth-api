@@ -7,6 +7,9 @@ import prisma from "@/lib/prisma/prisma";
  * - Sets shipVia & jobName when present.
  * - Fast insert via createMany; minimal per-row updates.
  */
+
+// TODO
+// ADD 6 WEEK CONFIRM AND 2 WEEK CONFIRM BOOLEAN 
 export async function upsertOrderSummariesForBAID(
   baid,
   rawRows,

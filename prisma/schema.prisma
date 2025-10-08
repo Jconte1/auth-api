@@ -42,9 +42,9 @@ model closeout_inventory {
 }
 
 model accounts {
-  id                    String    @id
-  createdAt             DateTime
-  updatedAt             DateTime
+  id                    String    @id @default(cuid())  // <-- add default
+  createdAt             DateTime  @default(now())       // <-- default
+  updatedAt             DateTime  @updatedAt            // <-- auto-update
   accountId             String
   providerId            String
   accessToken           String?
@@ -59,9 +59,9 @@ model accounts {
 }
 
 model sessions {
-  id             String   @id
-  createdAt      DateTime
-  updatedAt      DateTime
+  id             String   @id @default(cuid())    // <-- add default
+  createdAt      DateTime @default(now())         // <-- default
+  updatedAt      DateTime @updatedAt              // <-- auto-update
   expiresAt      DateTime
   token          String   @unique
   ipAddress      String?
@@ -72,25 +72,30 @@ model sessions {
 }
 
 model users {
-  id            String     @id
-  createdAt     DateTime
-  updatedAt     DateTime
+  id            String     @id @default(cuid())   // <-- add default
+  createdAt     DateTime   @default(now())        // <-- default
+  updatedAt     DateTime   @updatedAt             // <-- auto-update
   name          String
   email         String     @unique
-  emailVerified Boolean
+  emailVerified Boolean    @default(false)        // optional but nice
   image         String?
   baid          String?    @db.VarChar(64)
   accounts      accounts[]
   sessions      sessions[]
+  devices       Device[]
+  orderAssignments OrderAssignment[]
+  accountUserRoles AccountUserRole[]
 }
 
 model verifications {
-  id         String    @id
-  createdAt  DateTime?
-  updatedAt  DateTime?
+  id         String    @id @default(cuid())
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
   identifier String
   value      String
   expiresAt  DateTime
+
+  @@index([identifier])
 }
 
 model ErpOrderSummary {
@@ -111,11 +116,16 @@ model ErpOrderSummary {
   lastSeenAt   DateTime @default(now())
   isActive     Boolean  @default(true)
 
+  isConfirmed     Boolean?  @default(false)
+  confirmedAt     DateTime?
+
   // Relations
   address      ErpOrderAddress?
   contact      ErpOrderContact?
   payment      ErpOrderPayment?
   lines        ErpOrderLine[]
+  assignments  OrderAssignment[]
+  jobs         NotificationJob[]
 
   @@unique([baid, orderNbr], name: "baid_orderNbr")
   @@index([baid, deliveryDate])
@@ -207,6 +217,8 @@ model ErpOrderLine {
   usrETA          DateTime?                 // Details/UsrETA (line ETA)
   here            String?   @db.VarChar(512) // Details/Here
   warehouse       String?   @db.VarChar(512)
+
+ 
   @@index([orderSummaryId])
   @@index([baid, orderNbr])
 }
@@ -220,3 +232,118 @@ model ErpSyncRun {
   note       String?
   @@index([baid, startedAt])
 }
+
+model Device {
+  id         String   @id @default(cuid())
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  userId     String
+  user       users    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  platform   String   @db.VarChar(16)   // 'ios' | 'android'
+  pushToken  String   @unique
+  lastSeenAt DateTime @default(now())
+  isActive   Boolean  @default(true)
+
+  @@index([userId])
+}
+
+model OrderAssignment {
+  id              String           @id @default(cuid())
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  orderSummaryId  String           @db.VarChar(64)
+  order           ErpOrderSummary  @relation(fields: [orderSummaryId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  userId          String
+  user            users            @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  role            String           @db.VarChar(16)   // 'PM' | 'Customer' (free-form for now)
+  source          String           @db.VarChar(32)   // 'acumatica' | 'manual'
+  isActive        Boolean          @default(true)
+
+  @@index([orderSummaryId, role, isActive])
+  @@index([userId, isActive])
+}
+
+model NotificationJob {
+  id                 String          @id @default(cuid())
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+
+  orderSummaryId     String
+  order              ErpOrderSummary @relation(fields: [orderSummaryId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  phase              String          @db.VarChar(8)    // 'T42' | 'T14' | 'T2'
+  scheduledAt        DateTime
+  sentAt             DateTime?
+  status             String          @db.VarChar(16)   // 'scheduled' | 'waiting' | 'sent' | 'skipped' | 'escalated'
+  attemptCount       Int             @default(0)
+  confirmedAt        DateTime?
+  escalationPostedAt DateTime?
+
+  idempotencyKey     String          @unique
+  payloadHash        String?
+  attempts           NotificationAttempt[]
+
+  cycleKey           String?         @db.VarChar(16)
+
+  // NEW: denormalized for easy filtering/debug
+  orderNbr           String?         @db.VarChar(64)
+
+  @@unique([orderSummaryId, phase, cycleKey])
+  @@index([scheduledAt, status])
+  // Helpful query paths:
+  @@index([phase, orderNbr])
+  @@index([orderNbr, cycleKey])
+}
+
+model NotificationAttempt {
+  id                  String            @id @default(cuid())
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+
+  notificationJobId   String
+  job                 NotificationJob   @relation(fields: [notificationJobId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  attemptNumber       Int               // 1..3
+  sentAt              DateTime?
+  status              String            @db.VarChar(16)  // 'sent' | 'failed' | 'skipped'
+  providerMsgId       String?           @db.VarChar(128)
+  error               String?           @db.VarChar(1024)
+
+  // NEW: denormalized for easy filtering/debug
+  orderNbr            String?           @db.VarChar(64)
+
+  @@unique([notificationJobId, attemptNumber])
+  @@index([sentAt])
+  // Helpful query path:
+  @@index([orderNbr, attemptNumber])
+}
+
+
+enum AccountRole {
+  ADMIN
+  PM
+}
+
+model AccountUserRole {
+  id        String      @id @default(cuid())
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  baid      String      @db.VarChar(64)
+  userId    String
+  role      AccountRole
+
+  users     users       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  isActive  Boolean     @default(true)
+
+  @@index([baid, userId, role, isActive])
+  @@index([baid, role, isActive])
+}
+
+

@@ -28,7 +28,7 @@ export async function POST(req) {
     }
 
     // 3. Find user and their credentials account
-    const user = await prisma.user.findUnique({
+    const user = await prisma.users.findUnique({
       where: { id: decoded.userId },
       include: { accounts: true }
     });

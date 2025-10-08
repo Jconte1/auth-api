@@ -15,7 +15,7 @@ export async function GET(req) {
     }
 
     // 2. Find the verification entry
-    const verification = await prisma.verification.findFirst({
+    const verification = await prisma.verifications.findFirst({
       where: {
         identifier: email,
         value: token,
@@ -28,13 +28,13 @@ export async function GET(req) {
     }
 
     // 3. Update the user's emailVerified field
-    await prisma.user.update({
+    await prisma.users.update({
       where: { email },
       data: { emailVerified: true, updatedAt: new Date() },
     });
 
     // 4. Delete the verification token to prevent reuse
-    await prisma.verification.delete({
+    await prisma.verifications.delete({
       where: { id: verification.id },
     });
 
