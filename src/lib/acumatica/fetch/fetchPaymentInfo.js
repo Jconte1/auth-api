@@ -23,7 +23,7 @@ export default async function fetchPaymentInfo(
   const base = `${restService.baseUrl}/entity/CustomEndpoint/24.200.001/SalesOrder`;
   const agent = new https.Agent({ keepAlive: true, maxSockets: 8 });
 
-  const select = ["OrderNbr", "OrderTotal", "UnpaidBalance", "Terms"].join(",");
+  const select = ["OrderNbr", "OrderTotal", "UnpaidBalance", "Terms", "Status"].join(",");
 
   const chunks = chunk(orderNbrs, Math.max(1, chunkSize));
   const all = [];

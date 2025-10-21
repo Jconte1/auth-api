@@ -13,7 +13,7 @@ export default async function fetchVerifiedData(
     zip,
     email,
     phone,
-    pageSize = 500, // safety (we don't expect paging here)
+    pageSize = 500,
   } = {}
 ) {
   if (!zip || !email || !phone) {
@@ -28,7 +28,16 @@ export default async function fetchVerifiedData(
   // OData-escape single quotes
   const esc = (s) => String(s).replace(/'/g, "''");
 
-  const filter = `Zip5 eq '${esc(zip)}' and (PrimaryEmail eq '${esc(email)}' or PrimaryPhone1 eq '${esc(phone)}' or PrimaryPhone2 eq '${esc(phone)}')`;
+  const filter =
+    `
+  Zip5 eq '${esc(zip)}' 
+  and (PrimaryEmail eq '${esc(email)}' 
+  or PrimaryEmail2 eq '${esc(email)}' 
+  or PrimaryPhone1 eq '${esc(phone)}' 
+  or PrimaryPhone2 eq '${esc(phone)}'
+  or BusinessPhone1 eq '${esc(phone)}'
+  or BusinessPhone2 eq '${esc(phone)}')
+  `;
 
   const params = new URLSearchParams();
   params.set("$filter", filter);

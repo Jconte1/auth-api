@@ -112,7 +112,7 @@ model ErpOrderSummary {
   status       String   @db.VarChar(48)
   deliveryDate DateTime?
   shipVia      String?  @db.VarChar(64)
-
+  buyerGroup   String?  @db.VarChar(64) @default("")
   lastSeenAt   DateTime @default(now())
   isActive     Boolean  @default(true)
 
@@ -171,7 +171,10 @@ model ErpOrderContact {
   deliveryEmail   String?  @db.VarChar(256)
   siteNumber      String?  @db.VarChar(128) // Document.AttributeSITENUMBER
   osContact       String?  @db.VarChar(256) // Document.AttributeOSCONTACT
-
+  confirmedVia    String?  @db.VarChar(256) @default("")
+  confirmedWith   String?  @db.VarChar(256) @default("")
+  sixWeekFailed   Boolean? @default(false) 
+  tenDaySent      Boolean? @default(false)
   @@index([orderSummaryId])
   @@index([baid, orderNbr])
 }
@@ -188,7 +191,7 @@ model ErpOrderPayment {
   // convenient filters
   baid            String    @db.VarChar(64)
   orderNbr        String    @db.VarChar(64)
-
+  CustomerStatus  String    @default("Active") @db.VarChar(48)
   orderTotal      Decimal?  @db.Decimal(18, 2)
   unpaidBalance   Decimal?  @db.Decimal(18, 2)
   terms           String    @db.VarChar(64)
@@ -269,60 +272,31 @@ model OrderAssignment {
 }
 
 model NotificationJob {
-  id                 String          @id @default(cuid())
-  createdAt          DateTime        @default(now())
-  updatedAt          DateTime        @updatedAt
+  id                        String          @id @default(cuid())
+  createdAt                 DateTime        @default(now())
+  updatedAt                 DateTime        @updatedAt
 
-  orderSummaryId     String
-  order              ErpOrderSummary @relation(fields: [orderSummaryId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  orderSummaryId            String
+  order                     ErpOrderSummary @relation(fields: [orderSummaryId], references: [id], onDelete: Cascade, onUpdate: Cascade)
 
-  phase              String          @db.VarChar(8)    // 'T42' | 'T14' | 'T2'
-  scheduledAt        DateTime
-  sentAt             DateTime?
-  status             String          @db.VarChar(16)   // 'scheduled' | 'waiting' | 'sent' | 'skipped' | 'escalated'
-  attemptCount       Int             @default(0)
-  confirmedAt        DateTime?
-  escalationPostedAt DateTime?
+  phase                     String          @db.VarChar(8)    // 'T42' (others later if needed)
+  scheduledAt               DateTime
 
-  idempotencyKey     String          @unique
-  payloadHash        String?
-  attempts           NotificationAttempt[]
+  status                    String          @db.VarChar(16)   // 'open' | 'closed' | 'escalated'
+  attemptCount              Int             @default(0)
+  escalationPostedAt        DateTime?
 
-  cycleKey           String?         @db.VarChar(16)
+  idempotencyKey            String          @unique
+  orderNbr                  String?         @db.VarChar(64)
 
-  // NEW: denormalized for easy filtering/debug
-  orderNbr           String?         @db.VarChar(64)
+  lastAttemptAt             DateTime?
+  lastDeliveryDateSnapshot  DateTime?
+  closedAt                  DateTime?
 
-  @@unique([orderSummaryId, phase, cycleKey])
+  @@unique([orderSummaryId, phase], name: "orderSummaryId_phase")
   @@index([scheduledAt, status])
-  // Helpful query paths:
   @@index([phase, orderNbr])
-  @@index([orderNbr, cycleKey])
 }
-
-model NotificationAttempt {
-  id                  String            @id @default(cuid())
-  createdAt           DateTime          @default(now())
-  updatedAt           DateTime          @updatedAt
-
-  notificationJobId   String
-  job                 NotificationJob   @relation(fields: [notificationJobId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-
-  attemptNumber       Int               // 1..3
-  sentAt              DateTime?
-  status              String            @db.VarChar(16)  // 'sent' | 'failed' | 'skipped'
-  providerMsgId       String?           @db.VarChar(128)
-  error               String?           @db.VarChar(1024)
-
-  // NEW: denormalized for easy filtering/debug
-  orderNbr            String?           @db.VarChar(64)
-
-  @@unique([notificationJobId, attemptNumber])
-  @@index([sentAt])
-  // Helpful query path:
-  @@index([orderNbr, attemptNumber])
-}
-
 
 enum AccountRole {
   ADMIN

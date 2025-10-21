@@ -28,6 +28,7 @@ export async function upsertOrderSummariesForBAID(
     const shipVia = firstVal(row, ["ShipVia", "shipVia"]);
     const jobName = firstVal(row, ["JobName", "jobName"]);
     const customerName = firstVal(row, ["CustomerName", "customerName"]);
+    const buyerGroup = firstVal(row, ["Document.AttributeBUYERGROUP"]);
 
     const requestedOn = toDate(requested);
     if (!orderNbr || !status || !requestedOn) continue;
@@ -40,6 +41,7 @@ export async function upsertOrderSummariesForBAID(
       shipVia: optStr(shipVia),
       jobName: optStr(jobName),
       customerName: optStr(customerName),
+      buyerGroup: optStr(buyerGroup)
     });
   }
   console.log(`[upsertOrderSummaries] baid=${baid} incoming=${incoming.length}`);
@@ -55,6 +57,7 @@ export async function upsertOrderSummariesForBAID(
       shipVia: true,
       jobName: true,
       customerName: true,
+      buyerGroup: true,
     },
   });
   const byNbr = new Map(existing.map(r => [r.orderNbr, r]));
@@ -73,7 +76,8 @@ export async function upsertOrderSummariesForBAID(
         +new Date(r.deliveryDate) !== +new Date(prev.deliveryDate) ||
         (r.shipVia || null) !== (prev.shipVia || null) ||
         (r.jobName || null) !== (prev.jobName || null) ||
-        (r.customerName || null) !== (prev.customerName || null);
+        (r.customerName || null) !== (prev.customerName || null) ||
+        (r.buyerGroup || null) !== (prev.buyerGroup || null);
       if (changed) toUpdate.push(r);
     }
   }
@@ -93,6 +97,7 @@ export async function upsertOrderSummariesForBAID(
         deliveryDate: r.deliveryDate,
         lastSeenAt: now,
         isActive: true,
+        buyerGroup: r.buyerGroup,
       })),
       skipDuplicates: true,
     });
@@ -113,6 +118,7 @@ export async function upsertOrderSummariesForBAID(
           customerName: r.customerName ?? "",
           shipVia: r.shipVia ?? null,
           deliveryDate: r.deliveryDate,
+          buyerGroup: r.buyerGroup,
           lastSeenAt: now,
           isActive: true,
         },

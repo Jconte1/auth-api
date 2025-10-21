@@ -62,7 +62,7 @@ export async function POST(req) {
     const hashed = await argon2.hash(newPassword);
 
     // 5) Update credentials (adjust these fields to your actual Account model)
-    await prisma.account.updateMany({
+    await prisma.accounts.updateMany({
       where: { userId: user.id, providerId: 'credentials' },
       data: { password: hashed, updatedAt: new Date() },
     });

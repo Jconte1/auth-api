@@ -14,7 +14,7 @@ export async function POST(_req, { params }) {
   if (!orderNbr) {
     return NextResponse.json({ ok: false, error: 'MISSING_ORDER_NBR' }, { status: 400 });
   }
-
+  
   // Find the orderSummaryId from the OrderNbr
   const order = await prisma.erpOrderSummary.findFirst({
     where: { orderNbr },

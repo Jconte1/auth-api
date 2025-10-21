@@ -49,6 +49,7 @@ export default async function writePaymentInfo(
 
     const orderTotal = optDec(val(row, "OrderTotal"), 2);
     const unpaidBalance = optDec(val(row, "UnpaidBalance"), 2);
+    const status = optStr(val(row, "CustomerStatus"))
     const termsRaw = optStr(val(row, "Terms"));
     const terms = normalizeTerms(termsRaw); // ensure non-null if schema requires it
 
@@ -64,14 +65,16 @@ export default async function writePaymentInfo(
           orderNbr,
           orderTotal,
           unpaidBalance,
-          terms,        // <-- REQUIRED: always include
+          status,
+          terms,       
         },
         update: {
           baid,
           orderNbr,
           orderTotal,
           unpaidBalance,
-          terms,        // <-- REQUIRED: always include
+          status,
+          terms,        
           updatedAt: now,
         },
       });

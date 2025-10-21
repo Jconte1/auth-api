@@ -1,40 +1,53 @@
-// backend: app/api/me/route.js
-import { NextResponse } from 'next/server';
-import prisma from '@/lib/prisma/prisma';
-import requireAuth from '../requireAuth.js/route';
+// app/api/me/route.js
+import prisma from "@/lib/prisma/prisma";
+import requireAuth from "../requireAuth.js/route";
+
+const CORS_HEADERS = {
+  "Access-Control-Allow-Origin": "http://localhost:3000",
+  "Access-Control-Allow-Methods": "GET, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization",
+  // If you ever send cookies: "Access-Control-Allow-Credentials": "true",
+};
+
+export async function OPTIONS() {
+  return new Response(null, { status: 204, headers: CORS_HEADERS });
+}
 
 export async function GET(req) {
   const auth = requireAuth(req);
-  if (auth instanceof Response) return auth; // 401/403 if not authorized
+  if (auth instanceof Response) {
+    // Re-wrap auth failure with CORS headers so the browser sees them
+    const body = await auth.text();
+    return new Response(body, { status: auth.status, headers: CORS_HEADERS });
+  }
+
   const { userId } = auth;
 
-  const user = await prisma.users.findUnique({
-    where: { id: userId },
-    select: { id: true, email: true, name: true },
-  });
-  if (!user) {
-    return NextResponse.json({ ok: false, error: 'NO_USER' }, { status: 404 });
+  try {
+    const user = await prisma.users.findUnique({
+      where: { id: userId },
+      select: { id: true, email: true, name: true, baid: true },
+    });
+
+    if (!user) {
+      return new Response(JSON.stringify({ ok: false, error: "NO_USER" }), {
+        status: 404,
+        headers: CORS_HEADERS,
+      });
+    }
+
+    return new Response(
+      JSON.stringify({
+        ok: true,
+        user: { id: user.id, email: user.email, name: user.name },
+        baid: user.baid ?? null,
+      }),
+      { status: 200, headers: CORS_HEADERS }
+    );
+  } catch (e) {
+    return new Response(
+      JSON.stringify({ ok: false, error: "SERVER_ERROR" }),
+      { status: 500, headers: CORS_HEADERS }
+    );
   }
-
-  const rows = await prisma.accountUserRole.findMany({
-    where: { userId, isActive: true },
-    select: { baid: true, role: true },
-    orderBy: [{ baid: 'asc' }],
-  });
-
-  // Fold roles by BAID: [{ baid, roles: ['ADMIN','PM'] }, ...]
-  const byBaid = new Map();
-  for (const r of rows) {
-    if (!byBaid.has(r.baid)) byBaid.set(r.baid, new Set());
-    byBaid.get(r.baid).add(r.role);
-  }
-  const baids = Array.from(byBaid.entries()).map(([baid, set]) => ({
-    baid, roles: Array.from(set),
-  }));
-
-  return NextResponse.json({
-    ok: true,
-    user: { id: user.id, email: user.email, name: user.name },
-    baids,
-  });
 }

@@ -74,3 +74,48 @@ export async function sendT42Email({ to, orderNbr, customerName, deliveryDate })
 
   return { messageId: info?.messageId || null };
 }
+
+/**
+ * Send T14 confirmation email.
+ * Returns { messageId } on success.
+ */
+
+export async function sendT14Email({ to, orderNbr, customerName, deliveryDate }) {
+  if (!to) throw new Error('Missing recipient email');
+  const url = orderUrl(orderNbr);
+
+  const subject = `${APP_NAME} — Please confirm your delivery (about two weeks)`;
+  const plain = [
+    `Hello${customerName ? ` ${customerName}` : ''},`,
+    ``,
+    `Your ${APP_NAME} delivery is scheduled in about two weeks.`,
+    `Please confirm your details here: ${url}`,
+    ``,
+    `Order #: ${orderNbr}`,
+    deliveryDate ? `Delivery Date: ${new Date(deliveryDate).toLocaleDateString()}` : null,
+    ``,
+    `If anything needs to change, reply to this email or call your store.`,
+  ].filter(Boolean).join('\n');
+
+  const html = `
+    <div style="font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif;line-height:1.5;color:#111">
+      <p>Hello${customerName ? ` ${customerName}` : ''},</p>
+      <p>Your <strong>${APP_NAME}</strong> delivery is scheduled in about two weeks.</p>
+      <p><a href="${url}" style="display:inline-block;padding:10px 16px;background:#111;color:#fff;text-decoration:none;border-radius:6px">Confirm delivery</a></p>
+      <p style="margin-top:12px">Order # <strong>${orderNbr}</strong><br/>
+      ${deliveryDate ? `Delivery date: <strong>${new Date(deliveryDate).toLocaleDateString()}</strong><br/>` : ''}</p>
+      <p>If anything needs to change, reply to this email or call your store.</p>
+    </div>
+  `;
+
+  const info = await transporter.sendMail({
+    from: { name: APP_NAME, address: AUTO_EMAIL },
+    to,
+    subject,
+    text: plain,
+    html,
+  });
+
+  return { messageId: info?.messageId || null };
+}
+

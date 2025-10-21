@@ -42,7 +42,7 @@ export default async function fetchOrderSummaries(
     "CustomerName",
   ].join(",");
 
-  
+  const custom = "Document.AttributeBUYERGROUP";
 
   const all = [];
   for (let page = 0; page < maxPages; page++) {
@@ -68,6 +68,7 @@ export default async function fetchOrderSummaries(
       ].join(" and ")
     );
     params.set("$select", select);
+    params.set("$custom", custom);
     
     if (useOrderBy) params.set("$orderby", "RequestedOn desc");
     params.set("$top", String(pageSize));
@@ -96,7 +97,7 @@ export default async function fetchOrderSummaries(
     console.log(
       `[fetchOrderSummaries] baid=${baid} page=${page} size=${pageSize} rows=${rows.length} ms=${ms} truncated=${rows.length === pageSize}`
     );
-    if (rows.length < pageSize) break; // last page
+    if (rows.length < pageSize) break; 
   }
 
   console.log(`[fetchOrderSummaries] baid=${baid} totalRows=${all.length}`);

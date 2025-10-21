@@ -1,68 +1,91 @@
-import prisma from '@/lib/prisma/prisma';
-import argon2 from 'argon2';
-import jwt from 'jsonwebtoken';
-import success from '@/lib/auth-helpers/success';
-import error from '@/lib/auth-helpers/error';
+// app/api/auth/change-password/route.js
+import prisma from "@/lib/prisma/prisma";
+import argon2 from "argon2";
+// NOTE: this route lives in /app/api/auth/change-password,
+// so go up TWO levels to reach /app/api/requireAuth.js/route
+import requireAuth from "../requireAuth.js/route";
 
-const JWT_SECRET = process.env.JWT_SECRET || 'dev_secret';
+const CORS_HEADERS = {
+  "Access-Control-Allow-Origin": "http://localhost:3000",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization",
+  "Vary": "Origin",
+};
+
+export async function OPTIONS() {
+  return new Response(null, { status: 204, headers: CORS_HEADERS });
+}
 
 export async function POST(req) {
+  // Auth (reuse your helper and rewrap failures with CORS)
+  const auth = requireAuth(req);
+  if (auth instanceof Response) {
+    const body = await auth.text();
+    return new Response(body, { status: auth.status, headers: CORS_HEADERS });
+  }
+  const { userId } = auth;
+
   try {
-    // 1. Get and validate JWT from Authorization header
-    const authHeader = req.headers.get('authorization') || '';
-    if (!authHeader.startsWith('Bearer ')) {
-      return error('Missing or invalid Authorization header', 401);
+    const { currentPassword, newPassword, confirmPassword } = await req.json();
+
+    // Basic validation
+    if (!currentPassword || !newPassword || !confirmPassword) {
+      return new Response(
+        JSON.stringify({ ok: false, error: "Missing required fields." }),
+        { status: 400, headers: CORS_HEADERS }
+      );
     }
-    const token = authHeader.split(' ')[1];
-    let decoded;
-    try {
-      decoded = jwt.verify(token, JWT_SECRET);
-    } catch (err) {
-      return error('Invalid or expired token', 401);
+    if (newPassword !== confirmPassword) {
+      return new Response(
+        JSON.stringify({ ok: false, error: "Passwords do not match." }),
+        { status: 400, headers: CORS_HEADERS }
+      );
+    }
+    if (newPassword.length < 8) {
+      return new Response(
+        JSON.stringify({ ok: false, error: "Password must be at least 8 characters." }),
+        { status: 400, headers: CORS_HEADERS }
+      );
     }
 
-    // 2. Get request body
-    const { currentPassword, newPassword } = await req.json();
-    if (!currentPassword || !newPassword) {
-      return error('Missing current or new password.', 400);
-    }
-
-    // 3. Find user and their credentials account
-    const user = await prisma.users.findUnique({
-      where: { id: decoded.userId },
-      include: { accounts: true }
+    // Find credentials account
+    const account = await prisma.accounts.findFirst({
+      where: { userId, providerId: "credentials" },
+      select: { id: true, password: true },
     });
-    if (!user) return error('User not found', 404);
-
-    const account = user.accounts.find(acc => acc.providerId === 'credentials');
-    if (!account || !account.password) {
-      return error('No password set for this account.', 400);
+    if (!account?.password) {
+      return new Response(
+        JSON.stringify({ ok: false, error: "No credentials account found." }),
+        { status: 400, headers: CORS_HEADERS }
+      );
     }
 
-    // 4. Verify current password
+    // Verify current password
     const valid = await argon2.verify(account.password, currentPassword);
     if (!valid) {
-      return error('Current password is incorrect.', 401);
+      return new Response(
+        JSON.stringify({ ok: false, error: "Current password is incorrect." }),
+        { status: 400, headers: CORS_HEADERS }
+      );
     }
 
-    // 5. Hash and update new password
-    const hashed = await argon2.hash(newPassword);
-    await prisma.account.updateMany({
-      where: {
-        userId: user.id,
-        providerId: 'credentials'
-      },
-      data: {
-        password: hashed,
-        updatedAt: new Date()
-      }
+    // Hash & update
+    const hashed = await argon2.hash(newPassword, { type: argon2.argon2id });
+    await prisma.accounts.update({
+      where: { id: account.id },
+      data: { password: hashed, updatedAt: new Date() },
     });
 
-    // 6. Optionally, you could revoke all sessions here for security (not shown)
+    // (Optional) Invalidate other sessions/tokens here if you keep a sessions table
 
-    // 7. Respond with success
-    return success({ message: 'Password changed successfully.' });
-  } catch (err) {
-    return error(err.message || 'Failed to change password.', 500);
+    return new Response(
+      JSON.stringify({ ok: true, message: "Password updated." }),
+      { status: 200, headers: CORS_HEADERS }
+    );
+  } catch (e) {
+    return new Response(
+      JSON.stringify({ ok: false, error: "Failed to change password." }),
+      { status: 500, headers: CORS_HEADERS }
+    );
   }
 }
