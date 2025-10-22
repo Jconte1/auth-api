@@ -1,9 +1,8 @@
-// app/api/internal/cron/t42/route.js
 import { NextResponse } from 'next/server';
 import { isCronAuthorized } from '@/lib/cron/auth';
 import { runT42 } from '@/lib/notifications/t42/run';
 
-export async function POST(req) {
+async function runCron(req) {
   const { searchParams } = new URL(req.url);
   if (!isCronAuthorized(req, searchParams)) {
     return NextResponse.json({ ok: false, error: 'UNAUTHORIZED' }, { status: 401 });
@@ -21,10 +20,10 @@ export async function POST(req) {
   }
 }
 
-export async function GET() {
-  return NextResponse.json({
-    ok: true,
-    phase: 'T42',
-    message: 'POST (with cron auth) runs the single-pass T42 flow (attempts, resets, escalation).',
-  });
+export async function GET(req) {
+  return runCron(req);   // ← Vercel scheduled GET runs the job
+}
+
+export async function POST(req) {
+  return runCron(req);   // ← manual curl/Postman can POST w/ token
 }
