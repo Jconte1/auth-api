@@ -167,6 +167,10 @@ export async function runT42({ now = new Date() } = {}) {
     skipped++;
   }
 
+  const summary = { countedAttempts, emailsSent, emailsErrored, escalations, resets, closed, skipped };
+  console.log('[T42] summary:', JSON.stringify(summary));
+  return { ok: true, phase: PHASE, summary };
+
   return {
     ok: true,
     phase: PHASE,
