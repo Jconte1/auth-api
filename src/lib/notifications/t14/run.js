@@ -160,6 +160,6 @@ export async function runT14({ now = new Date() } = {}) {
     }
 
     const summary = { countedAttempts, emailsSent, emailsErrored, escalations, resets, closed, skipped };
-    console.log('[T42] summary:', JSON.stringify(summary));
+    console.log('[T14] summary:', JSON.stringify(summary));
     return { ok: true, phase: PHASE, summary };
 }
