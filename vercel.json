@@ -2,11 +2,11 @@
   "crons": [
     {
       "path": "/api/internal/cron/t42",
-      "schedule": "0 16 * * *"
+      "schedule": "15 15 * * *"
     },
     {
       "path": "/api/internal/cron/t14",
-      "schedule": "6 16 * * *"
+      "schedule": "21 15 * * *"
     }
   ]
 }
