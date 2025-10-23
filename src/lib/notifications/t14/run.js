@@ -34,6 +34,14 @@ export async function runT14({ now = new Date() } = {}) {
         const tenDaySent = o?.contact?.tenDaySent === true;
         const to = o?.contact?.deliveryEmail?.trim() || '';
 
+        console.log('[T14][inspect]', o.orderNbr, {
+            todayDenver: startOfDayDenver(now).toISOString(),
+            rawDelivery: o.deliveryDate,
+            daysOut,
+            tenDaySent,
+            hasEmail: !!to,
+        });
+
         // If date moved earlier/later than the window:
         if (daysOut == null) { skippedOutOfWindow++; continue; }
 
@@ -81,11 +89,6 @@ export async function runT14({ now = new Date() } = {}) {
     }
 
     const summary = { sent, resetFlags, skippedNoEmail, skippedOutOfWindow, alreadySent, errors };
-    console.log('[T14][inspect]', o.orderNbr, {
-        deliveryDate: o.deliveryDate,
-        daysOut,
-        tenDaySent: o?.contact?.tenDaySent,
-        hasEmail: !!(o?.contact?.deliveryEmail && o.contact.deliveryEmail.trim()),
-    });
+    console.log('[T14] summary:', JSON.stringify(summary));
     return { ok: true, phase: 'T14', summary };
 }
