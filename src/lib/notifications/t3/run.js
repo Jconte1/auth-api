@@ -67,8 +67,9 @@ export async function runT3({ now = new Date() } = {}) {
           data: { threeDaySent: true },
         });
         sent++;
-      } catch {
+      } catch (e) {
         errors++;
+        console.error('[T3][send-or-flag error]', o.orderNbr, e?.message || e);
       }
       continue;
     }

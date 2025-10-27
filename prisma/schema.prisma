@@ -175,6 +175,7 @@ model ErpOrderContact {
   confirmedWith   String?  @db.VarChar(256) @default("")
   sixWeekFailed   Boolean? @default(false) 
   tenDaySent      Boolean? @default(false)
+  threeDaySent    Boolean? @default(false)
   @@index([orderSummaryId])
   @@index([baid, orderNbr])
 }

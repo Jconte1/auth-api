@@ -15,10 +15,7 @@ export async function runT14({ now = new Date() } = {}) {
 
     // Pull active, future-dated orders (or today) where we might need to do T14 work
     const orders = await prisma.erpOrderSummary.findMany({
-        where: {
-            isActive: true,
-            deliveryDate: { gte: todayDenver },
-        },
+        where: { isActive: true, deliveryDate: { gte: todayDenver } },
         include: { contact: true },
     });
 
