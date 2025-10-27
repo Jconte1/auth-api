@@ -26,3 +26,4 @@ export default function requireAuth(req) {
     return NextResponse.json({ success: false, error: "INVALID_TOKEN" }, { status: 401 });
   }
 }
+

@@ -5,7 +5,7 @@ export default function success(data = {}, status = 200) {
       status,
       headers: {
         'Content-Type': 'application/json',
-        "Access-Control-Allow-Origin": process.env.FRONTEND_URL || "http://localhost:3000", // <-- Add this
+        "Access-Control-Allow-Origin": "http://localhost:3000", // <-- Add this
       },
     }
   );
