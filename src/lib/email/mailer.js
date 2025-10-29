@@ -10,6 +10,15 @@ const {
   APP_NAME = 'MLD',
 } = process.env;
 
+// ---- Store numbers (shared across all emails) ----
+const STORE_NUMBERS = [
+  { name: 'Salt Lake City', phone: '1-801-466-0990' },
+  { name: 'Provo',         phone: '1-801-932-0027' },
+  { name: 'Ketchum',       phone: '1-208-576-3643' },
+  { name: 'Boise',         phone: '1-208-258-2479' },
+  { name: 'Jackson',       phone: '1-307-200-4603' },
+];
+
 // Singleton transporter (dev-safe)
 let transporter = global.__mld_tx__;
 if (!transporter) {
@@ -23,157 +32,186 @@ if (!transporter) {
   if (process.env.NODE_ENV !== 'production') global.__mld_tx__ = transporter;
 }
 
-/**
- * Build the customer link to your order page.
- * Example target (per your earlier example): /jobs/upcoming/:orderNbr
- */
+// Build link to the customer’s order summary page
 function orderUrl(orderNbr) {
   const base = (FRONTEND_URL || 'http://localhost:3000').replace(/\/+$/, '');
   return `${base}/jobs/upcoming/${encodeURIComponent(orderNbr)}`;
 }
 
-/**
- * Send T42 confirmation email.
- * Returns { messageId } on success.
- */
+function noReplyHTML() {
+  return `
+    <p style="margin:16px 0 0 0; color:#555;">
+      <em>This email was sent from a notification-only address. Please don’t reply; this mailbox isn’t monitored.</em>
+    </p>
+  `;
+}
+
+function noReplyPlain() {
+  return 'This email was sent from a notification-only address. Please do not reply; this mailbox isn’t monitored.';
+}
+
+// ---- Shared visual primitives ----
+function buttonHTML(href, label) {
+  return `
+    <a href="${href}" style="
+      display:inline-block;
+      padding:10px 16px;
+      background:#111;
+      color:#fff !important;
+      text-decoration:none;
+      border-radius:6px;
+      font-weight:600;
+    ">${label}</a>
+  `;
+}
+
+function disclaimerHTML() {
+  const list = STORE_NUMBERS
+    .map(s => `<li><strong>${s.name}</strong> — <a href="tel:${s.phone.replace(/\s+/g,'')}">${s.phone}</a></li>`)
+    .join('');
+  return `
+    <hr style="border:none;border-top:1px solid #ddd;margin:20px 0"/>
+    <p style="margin:0 0 6px 0;"><em>If anything looks incorrect or needs to change, please contact your salesperson or call the showroom associated with your order.</em></p>
+    <ul style="margin:8px 0 0 18px;padding:0;line-height:1.6">${list}</ul>
+  `;
+}
+
+function disclaimerPlain() {
+  const lines = [
+    '— — —',
+    'If anything looks incorrect or needs to change, please contact your salesperson or call the showroom associated with your order:',
+    ...STORE_NUMBERS.map(s => `  • ${s.name}: ${s.phone}`),
+  ];
+  return lines.join('\n');
+}
+
+// ---- T42 (Action required) ----
 export async function sendT42Email({ to, orderNbr, customerName, deliveryDate }) {
   if (!to) throw new Error('Missing recipient email');
   const url = orderUrl(orderNbr);
 
-  const subject = `${APP_NAME} — Please confirm your upcoming delivery`;
+  const subject = `${APP_NAME} — Action required: please confirm your upcoming delivery`;
+  const deliveryLine = deliveryDate ? `Delivery Date: ${new Date(deliveryDate).toLocaleDateString()}` : null;
+
   const plain = [
     `Hello${customerName ? ` ${customerName}` : ''},`,
     ``,
-    `Your ${APP_NAME} delivery is scheduled in about six weeks.`,
-    `Please confirm your details here: ${url}`,
+    `Action required: please confirm your ${APP_NAME} delivery (about six weeks out).`,
+    deliveryLine,
+    ``,
+    `Confirm here: ${url}`,
     ``,
     `Order #: ${orderNbr}`,
-    deliveryDate ? `Delivery Date: ${new Date(deliveryDate).toLocaleDateString()}` : null,
     ``,
-    `If anything needs to change, reply to this email or call your store.`,
+    noReplyPlain(),
+    ``,
+    disclaimerPlain(),
   ].filter(Boolean).join('\n');
 
   const html = `
-    <div style="font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif;line-height:1.5;color:#111">
+    <div style="font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif;line-height:1.55;color:#111">
       <p>Hello${customerName ? ` ${customerName}` : ''},</p>
-      <p>Your <strong>${APP_NAME}</strong> delivery is scheduled in about six weeks.</p>
-      <p><a href="${url}" style="display:inline-block;padding:10px 16px;background:#111;color:#fff;text-decoration:none;border-radius:6px">Confirm delivery</a></p>
-      <p style="margin-top:12px">Order # <strong>${orderNbr}</strong><br/>
-      ${deliveryDate ? `Delivery date: <strong>${new Date(deliveryDate).toLocaleDateString()}</strong><br/>` : ''}</p>
-      <p>If anything needs to change, reply to this email or call your store.</p>
+      <p style="margin:0 0 8px 0"><strong>Action required</strong>: please confirm your ${APP_NAME} delivery (about six weeks out).</p>
+      <p style="margin:0 0 12px 0">
+        ${deliveryLine ? `${deliveryLine}<br/>` : ''}
+        Order # <strong>${orderNbr}</strong>
+      </p>
+      <p style="margin:16px 0">${buttonHTML(url, 'Confirm delivery')}</p>
+      ${noReplyHTML()}
+      ${disclaimerHTML()}
     </div>
   `;
 
-  const info = await transporter.sendMail({
-    from: { name: APP_NAME, address: AUTO_EMAIL },
-    to,
-    subject,
-    text: plain,
-    html,
-  });
-
+  const info = await transporter.sendMail({ from: { name: APP_NAME, address: AUTO_EMAIL }, to, subject, text: plain, html });
   return { messageId: info?.messageId || null };
 }
 
-/**
- * Send T14 confirmation email.
- * Returns { messageId } on success.
- */
 
+// ---- T14 (FYI / no action required) ----
 export async function sendT14Email({ to, orderNbr, customerName, deliveryDate }) {
   if (!to) throw new Error('Missing recipient email');
   const url = orderUrl(orderNbr);
 
   const subject = `${APP_NAME} — Upcoming delivery (about two weeks)`;
+  const deliveryLine = deliveryDate ? `Delivery Date: ${new Date(deliveryDate).toLocaleDateString()}` : null;
+
   const plain = [
     `Hello${customerName ? ` ${customerName}` : ''},`,
     ``,
     `Heads up: your ${APP_NAME} delivery is scheduled in about two weeks.`,
-    deliveryDate ? `Delivery Date: ${new Date(deliveryDate).toLocaleDateString()}` : null,
+    deliveryLine,
     ``,
     `View your order summary: ${url}`,
     ``,
-    `If anything looks incorrect, please reach out to your salesperson or call the store associated with your order.`,
-    `You can also reply to this email.`,
-    ``,
     `Order #: ${orderNbr}`,
+    ``,
+    noReplyPlain(),
+    ``,
+    disclaimerPlain(),
   ].filter(Boolean).join('\n');
 
   const html = `
-    <div style="font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif;line-height:1.5;color:#111">
+    <div style="font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif;line-height:1.55;color:#111">
       <p>Hello${customerName ? ` ${customerName}` : ''},</p>
-      <p>Heads up: your <strong>${APP_NAME}</strong> delivery is scheduled in about two weeks.</p>
-      <p style="margin-top:12px">
-        ${deliveryDate ? `Delivery date: <strong>${new Date(deliveryDate).toLocaleDateString()}</strong><br/>` : ''}
+      <p>Your <strong>${APP_NAME}</strong> delivery is scheduled in about two weeks.</p>
+      <p style="margin:0 0 12px 0">
+        ${deliveryLine ? `${deliveryLine}<br/>` : ''}
         Order # <strong>${orderNbr}</strong>
       </p>
-      <p style="margin:16px 0">
-        <a href="${url}" style="display:inline-block;padding:10px 16px;background:#111;color:#fff;text-decoration:none;border-radius:6px">
-          View order summary
-        </a>
-      </p>
-      <p style="margin-top:12px">
-        If anything looks incorrect, please reach out to your salesperson or call the store associated with your order.
-        You can also reply to this email.
-      </p>
+      <p style="margin:16px 0">${buttonHTML(url, 'View order summary')}</p>
+      ${noReplyHTML()}
+      ${disclaimerHTML()}
     </div>
   `;
 
-  const info = await transporter.sendMail({
-    from: { name: APP_NAME, address: AUTO_EMAIL },
-    to,
-    subject,
-    text: plain,
-    html,
-  });
+  const info = await transporter.sendMail({ from: { name: APP_NAME, address: AUTO_EMAIL }, to, subject, text: plain, html });
   return { messageId: info?.messageId || null };
 }
 
+
+// ---- T3 (FYI / no action required) ----
 export async function sendT3Email({ to, orderNbr, customerName, deliveryDate }) {
   if (!to) throw new Error('Missing recipient email');
   const url = orderUrl(orderNbr);
 
-  const subject = `${APP_NAME} — Delivery reminder (3 days)`;
+  const subject = `${APP_NAME} — Delivery reminder (coming days)`;
+  const deliveryLine = deliveryDate ? `Delivery Date: ${new Date(deliveryDate).toLocaleDateString()}` : null;
+
   const plain = [
     `Hello${customerName ? ` ${customerName}` : ''},`,
     ``,
-    `Just a reminder: your ${APP_NAME} delivery is scheduled in about three days.`,
-    deliveryDate ? `Delivery Date: ${new Date(deliveryDate).toLocaleDateString()}` : null,
+    `Just a reminder: your ${APP_NAME} delivery is scheduled in the coming days.`,
+    deliveryLine,
+    ``,
+    `You'll also receive a text message shortly to confirm delivery and jobsite details.`,
     ``,
     `View your order summary: ${url}`,
     ``,
-    `If anything looks incorrect, please reach out to your salesperson or call the store associated with your order.`,
-    `You can also reply to this email.`,
-    ``,
     `Order #: ${orderNbr}`,
+    ``,
+    noReplyPlain(),
+    ``,
+    disclaimerPlain(),
   ].filter(Boolean).join('\n');
 
   const html = `
-    <div style="font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif;line-height:1.5;color:#111">
+    <div style="font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif;line-height:1.55;color:#111">
       <p>Hello${customerName ? ` ${customerName}` : ''},</p>
-      <p>Your <strong>${APP_NAME}</strong> delivery is scheduled in about three days.</p>
-      <p style="margin-top:12px">
-        ${deliveryDate ? `Delivery date: <strong>${new Date(deliveryDate).toLocaleDateString()}</strong><br/>` : ''}
+      <p>Your <strong>${APP_NAME}</strong> delivery is scheduled in the coming days.</p>
+      <p style="margin:0 0 12px 0">
+        ${deliveryLine ? `${deliveryLine}<br/>` : ''}
         Order # <strong>${orderNbr}</strong>
       </p>
-      <p style="margin:16px 0">
-        <a href="${url}" style="display:inline-block;padding:10px 16px;background:#111;color:#fff;text-decoration:none;border-radius:6px">
-          View order summary
-        </a>
+      <p style="margin:0 0 12px 0">
+        You'll also receive a text message shortly to confirm delivery and jobsite details.
       </p>
-      <p style="margin-top:12px">
-        If anything looks incorrect, please reach out to your salesperson or call the store associated with your order.
-        You can also reply to this email.
-      </p>
+      <p style="margin:16px 0">${buttonHTML(url, 'View order summary')}</p>
+      ${noReplyHTML()}
+      ${disclaimerHTML()}
     </div>
   `;
 
-  const info = await transporter.sendMail({
-    from: { name: APP_NAME, address: AUTO_EMAIL },
-    to,
-    subject,
-    text: plain,
-    html,
-  });
+  const info = await transporter.sendMail({ from: { name: APP_NAME, address: AUTO_EMAIL }, to, subject, text: plain, html });
   return { messageId: info?.messageId || null };
 }
+

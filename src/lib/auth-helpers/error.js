@@ -5,7 +5,7 @@ export default function error(error, status = 400) {
       status,
       headers: {
         'Content-Type': 'application/json',
-        "Access-Control-Allow-Origin": "http://localhost:3000", // <-- Add this
+        "Access-Control-Allow-Origin": "https://mld-website-git-login-feature-jconte1s-projects.vercel.app", //http://localhost:3000
       },
     }
   );

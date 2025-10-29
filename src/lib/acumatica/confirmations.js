@@ -1,23 +1,205 @@
-// src/lib/erp/confirmations.js
+// src/lib/Acumatica/confirmations.js
+import AcumaticaService from "./auth/acumaticaService";
 
 /**
- * Placeholder: send a "customer confirmed order" signal to Acumatica.
- * Wire your OAuth client + POST here. Keep the shape stable so callers don't change.
- *
- * @param {Object} payload
- * @param {string} payload.orderId        // internal ID (ErpOrderSummary.id)
- * @param {string} payload.baid
- * @param {string} payload.orderNbr
- * @param {string|Date} [payload.deliveryDate]
- * @param {string} [payload.deliveryEmail]
- * @returns {Promise<{ok: boolean, erpId?: string|null}>}
+ * Library call to mark "Three Day Sent" on a Sales Order in Acumatica.
+ * Throws on failure; returns parsed Acumatica response on success.
  */
-export async function postOrderConfirmed(payload) {
-  // TODO: integrate with your Acumatica client:
-  // const token = await acumaticaClient.getToken();
-  // const res = await fetch(`${ACUMATICA_URL}/...`, { method:'POST', headers:{ Authorization:`Bearer ${token}` }, body: JSON.stringify(payload) });
-  // return { ok: res.ok, erpId: (await res.json()).id };
 
-  // For now, just acknowledge.
-  return { ok: true, erpId: null };
+export async function writeT3({ orderType, orderNbr }) {
+  if (!orderType || !orderNbr) {
+    throw new Error("writeT3: orderType and orderNbr are required");
+  }
+
+  const {
+    ACUMATICA_BASE_URL,
+    ACUMATICA_CLIENT_ID,
+    ACUMATICA_CLIENT_SECRET,
+    ACUMATICA_USERNAME,
+    ACUMATICA_PASSWORD,
+  } = process.env;
+
+  const restService = new AcumaticaService(
+    ACUMATICA_BASE_URL,
+    ACUMATICA_CLIENT_ID,
+    ACUMATICA_CLIENT_SECRET,
+    ACUMATICA_USERNAME,
+    ACUMATICA_PASSWORD
+  );
+
+  const accessToken = await restService.getToken();
+
+  // Only send what you want to change
+  const payload = {
+    custom: {
+      Document: {
+        AttributeTHREEDAY: { type: "CustomBooleanField", value: true },
+      },
+    },
+  };
+
+  // Key-addressed URL avoids ambiguous matches
+  const url = `${restService.baseUrl}/entity/Default/24.200.001/SalesOrder?$filter=OrderType eq '${orderType}' and OrderNbr eq '${orderNbr}'`;
+  
+  const resp = await fetch(url, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify(payload),
+  });
+
+  const raw = await resp.text();
+  let data;
+  try {
+    data = JSON.parse(raw);
+  } catch {
+    console.error("[writeT3] Non-JSON SalesOrder response:", raw);
+    throw new Error("writeT3: Unexpected SalesOrder response (non-JSON)");
+  }
+
+  if (!resp.ok) {
+    console.error("[writeT3] Acumatica SalesOrder error:", data);
+    const msg = data?.message || "SalesOrder update failed";
+    const err = new Error(`writeT3: ${msg}`);
+    err.status = resp.status;
+    err.data = data;
+    throw err;
+  }
+
+  return data;
+}
+
+export async function writeT14({ orderType, orderNbr }) {
+  if (!orderType || !orderNbr) {
+    throw new Error("writeT14: orderType and orderNbr are required");
+  }
+
+  const {
+    ACUMATICA_BASE_URL,
+    ACUMATICA_CLIENT_ID,
+    ACUMATICA_CLIENT_SECRET,
+    ACUMATICA_USERNAME,
+    ACUMATICA_PASSWORD,
+  } = process.env;
+
+  const restService = new AcumaticaService(
+    ACUMATICA_BASE_URL,
+    ACUMATICA_CLIENT_ID,
+    ACUMATICA_CLIENT_SECRET,
+    ACUMATICA_USERNAME,
+    ACUMATICA_PASSWORD
+  );
+
+  const accessToken = await restService.getToken();
+
+  // Only send what you want to change
+  const payload = {
+    custom: {
+      Document: {
+        AttributeTWOWEEK: { type: "CustomBooleanField", value: true },
+      },
+    },
+  };
+
+  // Key-addressed URL avoids ambiguous matches
+  const url = `${restService.baseUrl}/entity/Default/24.200.001/SalesOrder?$filter=OrderType eq '${orderType}' and OrderNbr eq '${orderNbr}'`;
+  
+  const resp = await fetch(url, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify(payload),
+  });
+
+  const raw = await resp.text();
+  let data;
+  try {
+    data = JSON.parse(raw);
+  } catch {
+    console.error("[writeT14] Non-JSON SalesOrder response:", raw);
+    throw new Error("writeT14: Unexpected SalesOrder response (non-JSON)");
+  }
+
+  if (!resp.ok) {
+    console.error("[writeT14] Acumatica SalesOrder error:", data);
+    const msg = data?.message || "SalesOrder update failed";
+    const err = new Error(`writeT14: ${msg}`);
+    err.status = resp.status;
+    err.data = data;
+    throw err;
+  }
+
+  return data;
+}
+
+export async function writeT42({ orderType, orderNbr }) {
+  if (!orderType || !orderNbr) {
+    throw new Error("writeT42: orderType and orderNbr are required");
+  }
+
+  const {
+    ACUMATICA_BASE_URL,
+    ACUMATICA_CLIENT_ID,
+    ACUMATICA_CLIENT_SECRET,
+    ACUMATICA_USERNAME,
+    ACUMATICA_PASSWORD,
+  } = process.env;
+
+  const restService = new AcumaticaService(
+    ACUMATICA_BASE_URL,
+    ACUMATICA_CLIENT_ID,
+    ACUMATICA_CLIENT_SECRET,
+    ACUMATICA_USERNAME,
+    ACUMATICA_PASSWORD
+  );
+
+  const accessToken = await restService.getToken();
+
+  // Only send what you want to change
+  const payload = {
+    custom: {
+      Document: {
+        AttributeSIXWEEKFF: { type: "CustomBooleanField", value: true },
+      },
+    },
+  };
+
+  // Key-addressed URL avoids ambiguous matches
+  const url = `${restService.baseUrl}/entity/Default/24.200.001/SalesOrder?$filter=OrderType eq '${orderType}' and OrderNbr eq '${orderNbr}'`;
+  
+  const resp = await fetch(url, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify(payload),
+  });
+
+  const raw = await resp.text();
+  let data;
+  try {
+    data = JSON.parse(raw);
+  } catch {
+    console.error("[writeT42] Non-JSON SalesOrder response:", raw);
+    throw new Error("writeT42: Unexpected SalesOrder response (non-JSON)");
+  }
+
+  if (!resp.ok) {
+    console.error("[writeT42] Acumatica SalesOrder error:", data);
+    const msg = data?.message || "SalesOrder update failed";
+    const err = new Error(`writeT42: ${msg}`);
+    err.status = resp.status;
+    err.data = data;
+    throw err;
+  }
+
+  return data;
 }

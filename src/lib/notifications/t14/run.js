@@ -2,12 +2,19 @@
 import prisma from '@/lib/prisma/prisma';
 import { startOfDayDenver } from '@/lib/time/denver';
 import { sendT14Email } from '@/lib/email/mailer';
+import { writeT14 } from '@/lib/acumatica/confirmations';
 
 function daysUntilDenver(targetDate, now = new Date()) {
     if (!targetDate) return null;
     const t0 = startOfDayDenver(targetDate);
     const n0 = startOfDayDenver(now);
     return Math.round((t0.getTime() - n0.getTime()) / (24 * 60 * 60 * 1000));
+}
+
+function orderTypeFromNbr(orderNbr = '') {
+    // Grab the first two Characters at the start of the string, e.g. "SO12345" → "SO"
+    const m = String(orderNbr).match(/^[A-Za-z0-9]{2}/);
+    return m ? m[0].toUpperCase() : null;
 }
 
 export async function runT14({ now = new Date() } = {}) {
@@ -25,6 +32,8 @@ export async function runT14({ now = new Date() } = {}) {
     let skippedOutOfWindow = 0;
     let alreadySent = 0;
     let errors = 0;
+    let erpWrites = 0;
+    let erpWriteErrors = 0;
 
     for (const o of orders) {
         const daysOut = daysUntilDenver(o.deliveryDate, now);
@@ -57,6 +66,7 @@ export async function runT14({ now = new Date() } = {}) {
             if (!to) { skippedNoEmail++; continue; }
 
             try {
+                // 1) Send email
                 await sendT14Email({
                     to,
                     orderNbr: o.orderNbr,
@@ -64,15 +74,31 @@ export async function runT14({ now = new Date() } = {}) {
                     deliveryDate: o.deliveryDate,
                 });
 
-                // Mark as sent
+                // 2) Mark local contact flag
                 await prisma.erpOrderContact.update({
                     where: { orderSummaryId: o.id },
                     data: { tenDaySent: true },
                 });
 
+                // 3) Tell ERP (library call). Keep isolated so ERP write failures don't undo email/flag.
+                try {
+                    const orderType = orderTypeFromNbr(o.orderNbr);
+                    if (!orderType) {
+                        erpWriteErrors++;
+                        console.error('[T14][ERP write skipped - bad orderType]', o.orderNbr, 'Could not derive orderType from orderNbr');
+                    } else {
+                        await writeT14({ orderType, orderNbr: o.orderNbr });
+                        erpWrites++;
+                    }
+                } catch (erpErr) {
+                    erpWriteErrors++;
+                    console.error('[T14][ERP write error]', o.orderNbr, erpErr?.message || erpErr);
+                }
+
                 sent++;
             } catch (e) {
                 errors++;
+                console.error('[T14][send-or-flag error]', o.orderNbr, e?.message || e);
             }
             continue;
         }
@@ -85,7 +111,7 @@ export async function runT14({ now = new Date() } = {}) {
         }
     }
 
-    const summary = { sent, resetFlags, skippedNoEmail, skippedOutOfWindow, alreadySent, errors };
+    const summary = { sent, resetFlags, skippedNoEmail, skippedOutOfWindow, alreadySent, errors, erpWrites, erpWriteErrors };
     console.log('[T14] summary:', JSON.stringify(summary));
     return { ok: true, phase: 'T14', summary };
 }

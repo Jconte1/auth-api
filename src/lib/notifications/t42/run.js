@@ -3,7 +3,7 @@ import prisma from '@/lib/prisma/prisma';
 import { startOfDayDenver } from '@/lib/time/denver';
 import { ensureJob, incrementAttempt, resetAttempts, closeJob } from './jobs';
 import { sendT42Email } from '@/lib/email/mailer';
-import { postDeliveryEscalation } from '@/lib/acumatica/escalations';
+import { writeT42 } from '@/lib/acumatica/confirmations';
 
 const PHASE = 'T42';
 const SEND_DAYS = new Set([42, 41, 40, 39]);
@@ -13,6 +13,12 @@ function daysUntilDenver(targetDate, now = new Date()) {
   const t0 = startOfDayDenver(targetDate);
   const n0 = startOfDayDenver(now);
   return Math.round((t0.getTime() - n0.getTime()) / (24 * 60 * 60 * 1000));
+}
+
+function orderTypeFromNbr(orderNbr = '') {
+  // e.g. "C105098" -> "C1"
+  const m = String(orderNbr).match(/^[A-Za-z0-9]{2}/);
+  return m ? m[0].toUpperCase() : null;
 }
 
 // Treat null or "" as empty
@@ -25,9 +31,9 @@ export async function runT42({ now = new Date() } = {}) {
 
   // Pull only orders that *might* need attention:
   // - active
-  // - have a deliveryDate in the future (or today)
-  // - unconfirmed via/with (empty)
-  // - not marked sixWeekFailed
+  // - future (or today)
+  // - unconfirmed
+  // - not already marked sixWeekFailed
   const orders = await prisma.erpOrderSummary.findMany({
     where: {
       isActive: true,
@@ -51,10 +57,14 @@ export async function runT42({ now = new Date() } = {}) {
   let closed = 0;
   let skipped = 0;
 
+  // ERP write counters
+  let erpWrites = 0;
+  let erpWriteErrors = 0;
+
   for (const o of orders) {
     const daysOut = daysUntilDenver(o.deliveryDate, now);
 
-    // Belt & suspenders: if confirmations present, close job and skip.
+    // If confirmations are present, close job and skip
     if (!isEmpty(o?.contact?.confirmedVia) || !isEmpty(o?.contact?.confirmedWith)) {
       const job = await prisma.notificationJob.findUnique({
         where: { orderSummaryId_phase: { orderSummaryId: o.id, phase: PHASE } },
@@ -68,14 +78,14 @@ export async function runT42({ now = new Date() } = {}) {
       continue;
     }
 
-    // Skip entirely if flagged failed until a human clears it (sync flips it back to false)
+    // If already flagged failed, skip (ops must clear)
     if (o?.contact?.sixWeekFailed === true) {
       skipped++;
       continue;
     }
 
-    // > 42 days: reset attempts (if any) and skip for today
-    if (daysOut > 42) {
+    // > 42 days: reset attempts (if any) and skip
+    if (daysOut == null || daysOut > 42) {
       const job = await prisma.notificationJob.findUnique({
         where: { orderSummaryId_phase: { orderSummaryId: o.id, phase: PHASE } },
       });
@@ -83,31 +93,29 @@ export async function runT42({ now = new Date() } = {}) {
         await resetAttempts(job.id, o.deliveryDate);
         resets++;
       } else {
-        // no job or already zero attempts
         skipped++;
       }
       continue;
     }
 
-    // < 39 days and still unconfirmed: escalate immediately (regardless of attempts)
+    // < 39 days: escalate (ERP write), then flag sixWeekFailed on success
     if (daysOut < 39) {
-      // Ensure a job exists (so we can stamp escalation)
       const job = await ensureJob(o.id, o.deliveryDate);
 
-      const res = await postDeliveryEscalation({
-        orderId: o.id,
-        baid: o.baid,
-        orderNbr: o.orderNbr,
-        deliveryDate: o.deliveryDate,
-        deliveryEmail: o?.contact?.deliveryEmail || null,
-        phase: PHASE,
-        daysOut,
-        attemptCount: job.attemptCount ?? 0,
-        reason: 'late-window',
-      });
+      try {
+        const orderType = orderTypeFromNbr(o.orderNbr);
+        if (!orderType) {
+          erpWriteErrors++;
+          console.error('[T42][ERP write skipped - bad orderType]', o.orderNbr, 'Could not derive orderType from orderNbr');
+          skipped++;
+          continue;
+        }
 
-      if (res?.ok) {
-        // Mark contact failed + reset attempts + stamp escalation
+        // Write to ERP first
+        await writeT42({ orderType, orderNbr: o.orderNbr });
+        erpWrites++;
+
+        // Only after a successful ERP write do we flag locally and stamp escalation
         await prisma.$transaction([
           prisma.erpOrderContact.update({
             where: { orderSummaryId: o.id },
@@ -119,27 +127,62 @@ export async function runT42({ now = new Date() } = {}) {
           }),
         ]);
         escalations++;
-      } else {
-        // If ERP write fails, do nothing else; next cron will retry while sixWeekFailed is still false.
+      } catch (erpErr) {
+        erpWriteErrors++;
+        console.error('[T42][ERP write error]', o.orderNbr, erpErr?.message || erpErr);
+        // Do not mark sixWeekFailed; next run will retry.
         skipped++;
       }
       continue;
     }
 
-    // 39–42 window: count attempts (even with missing/bad email) up to 3; never send a 4th email
+    // 39–42 window: count attempts (max 3), try sending email if present
+    // 39–42 window: count attempts (max 3). If we'd reach a 4th touch, escalate instead of emailing.
     if (SEND_DAYS.has(daysOut)) {
       const job = await ensureJob(o.id, o.deliveryDate);
 
-      // Avoid double-counting within the same Denver day
       const alreadyCountedToday =
         job.lastAttemptAt &&
         startOfDayDenver(job.lastAttemptAt).getTime() === todayDenver.getTime();
 
+      // If we've already recorded 3 attempts (i.e., the next would be #4), escalate + ERP write
+      if (job.attemptCount >= 3 && !alreadyCountedToday && job.status !== 'escalated') {
+        try {
+          const orderType = orderTypeFromNbr(o.orderNbr);
+          if (!orderType) {
+            erpWriteErrors++;
+            console.error('[T42][ERP write skipped - bad orderType]', o.orderNbr, 'Could not derive orderType from orderNbr');
+            skipped++;
+          } else {
+            await writeT42({ orderType, orderNbr: o.orderNbr });
+            erpWrites++;
+
+            await prisma.$transaction([
+              prisma.erpOrderContact.update({
+                where: { orderSummaryId: o.id },
+                data: { sixWeekFailed: true },
+              }),
+              prisma.notificationJob.update({
+                where: { id: job.id },
+                data: { attemptCount: 0, escalationPostedAt: new Date(), status: 'escalated' },
+              }),
+            ]);
+            escalations++;
+          }
+        } catch (erpErr) {
+          erpWriteErrors++;
+          console.error('[T42][ERP write error]', o.orderNbr, erpErr?.message || erpErr);
+          // Leave sixWeekFailed false so a later run can retry
+          skipped++;
+        }
+        continue;
+      }
+
+      // Normal attempt counting (only for attempts 0–2). Attempt #3 still sends the email.
       if (job.attemptCount < 3 && !alreadyCountedToday) {
         await incrementAttempt(job.id);
         countedAttempts++;
 
-        // Try to send if we have an email; attempt still counts regardless of outcome
         const to = o?.contact?.deliveryEmail || null;
         if (to) {
           try {
@@ -151,23 +194,30 @@ export async function runT42({ now = new Date() } = {}) {
             });
             emailsSent++;
           } catch {
-            emailsErrored++; // attempt still counted
+            emailsErrored++;
           }
         }
       } else {
-        // attemptCount >= 3 or already counted today → no more emails here
-        // Escalation is handled once the order leaves the window (<39) or via ops policy
+        // Either already counted today, or already escalated, or attemptCount >= 3 but handled above
         skipped++;
       }
       continue;
     }
-
-    // If we’re exactly at 39, the above branch handled it.
-    // Any other day (e.g., 43+ handled earlier, <39 handled earlier) falls through to skip.
+    // Anything else falls through
     skipped++;
   }
 
-  const summary = { countedAttempts, emailsSent, emailsErrored, escalations, resets, closed, skipped };
+  const summary = {
+    countedAttempts,
+    emailsSent,
+    emailsErrored,
+    escalations,
+    resets,
+    closed,
+    skipped,
+    erpWrites,
+    erpWriteErrors,
+  };
   console.log('[T42] summary:', JSON.stringify(summary));
   return { ok: true, phase: PHASE, summary };
 }
