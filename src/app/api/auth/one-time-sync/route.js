@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import requireAuth from "../requireAuth.js/route";
 
 const CORS_HEADERS = {
-  "Access-Control-Allow-Origin": "http://localhost:3000",
+  "Access-Control-Allow-Origin": "https://mld-website-git-login-feature-jconte1s-projects.vercel.app",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type, Authorization",
   "Content-Type": "application/json",

@@ -7,7 +7,7 @@ import writeConfirmOrder from "@/lib/acumatica/write/writeConfirmOrder";
 
 // Helper to build CORS headers
 function corsHeaders(origin) {
-  const allowOrigin = origin || "http://localhost:3000";
+  const allowOrigin = origin || "https://mld-website-git-login-feature-jconte1s-projects.vercel.app";
   return {
     "Access-Control-Allow-Origin": allowOrigin,
     "Access-Control-Allow-Methods": "POST, OPTIONS",
