@@ -5,6 +5,7 @@ import { ensureJob, incrementAttempt, resetAttempts, closeJob } from './jobs';
 import { sendT42Email } from '@/lib/email/mailer';
 import { writeT42 } from '@/lib/acumatica/escalations';
 import { writeT42EscalateNote } from '@/lib/acumatica/escalations';
+
 const PHASE = 'T42';
 const SEND_DAYS = new Set([42, 41, 40, 39]);
 
@@ -29,11 +30,6 @@ function isEmpty(v) {
 export async function runT42({ now = new Date() } = {}) {
   const todayDenver = startOfDayDenver(now);
 
-  // Pull only orders that *might* need attention:
-  // - active
-  // - future (or today)
-  // - unconfirmed
-  // - not already marked sixWeekFailed
   const orders = await prisma.erpOrderSummary.findMany({
     where: {
       isActive: true,
@@ -111,11 +107,23 @@ export async function runT42({ now = new Date() } = {}) {
           continue;
         }
 
-        // Write to ERP first
+        // 1) Write to ERP
         await writeT42({ orderType, orderNbr: o.orderNbr });
         erpWrites++;
 
-        // Only after a successful ERP write do we flag locally and stamp escalation
+        // 1b) Best-effort activity note on the same Sales Order
+        try {
+          const noteId = o?.noteId || o?.contact?.noteId || null;
+          if (noteId) {
+            await writeT42EscalateNote({ noteID: noteId });
+          } else {
+            console.warn('[T42][note skipped - no noteId]', o.orderNbr);
+          }
+        } catch (noteErr) {
+          console.warn('[T42][note error]', o.orderNbr, noteErr?.message || noteErr);
+        }
+
+        // 2) After a successful ERP write, flag locally & stamp escalation
         await prisma.$transaction([
           prisma.erpOrderContact.update({
             where: { orderSummaryId: o.id },
@@ -136,7 +144,6 @@ export async function runT42({ now = new Date() } = {}) {
       continue;
     }
 
-    // 39–42 window: count attempts (max 3), try sending email if present
     // 39–42 window: count attempts (max 3). If we'd reach a 4th touch, escalate instead of emailing.
     if (SEND_DAYS.has(daysOut)) {
       const job = await ensureJob(o.id, o.deliveryDate);
@@ -145,7 +152,7 @@ export async function runT42({ now = new Date() } = {}) {
         job.lastAttemptAt &&
         startOfDayDenver(job.lastAttemptAt).getTime() === todayDenver.getTime();
 
-      // If we've already recorded 3 attempts (i.e., the next would be #4), escalate + ERP write
+      // If we've already recorded 3 attempts (next would be #4), escalate + ERP write
       if (job.attemptCount >= 3 && !alreadyCountedToday && job.status !== 'escalated') {
         try {
           const orderType = orderTypeFromNbr(o.orderNbr);
@@ -154,9 +161,23 @@ export async function runT42({ now = new Date() } = {}) {
             console.error('[T42][ERP write skipped - bad orderType]', o.orderNbr, 'Could not derive orderType from orderNbr');
             skipped++;
           } else {
+            // 1) ERP escalation write
             await writeT42({ orderType, orderNbr: o.orderNbr });
             erpWrites++;
 
+            // 1b) Best-effort escalate note
+            try {
+              const noteId = o?.noteId || o?.contact?.noteId || null;
+              if (noteId) {
+                await writeT42EscalateNote({ noteID: noteId });
+              } else {
+                console.warn('[T42][note skipped - no noteId]', o.orderNbr);
+              }
+            } catch (noteErr) {
+              console.warn('[T42][note error]', o.orderNbr, noteErr?.message || noteErr);
+            }
+
+            // 2) Local flags after ERP success
             await prisma.$transaction([
               prisma.erpOrderContact.update({
                 where: { orderSummaryId: o.id },
@@ -178,7 +199,7 @@ export async function runT42({ now = new Date() } = {}) {
         continue;
       }
 
-      // Normal attempt counting (only for attempts 0–2). Attempt #3 still sends the email.
+      // Normal attempt counting (attempts 0–2). Attempt #3 still sends the email.
       if (job.attemptCount < 3 && !alreadyCountedToday) {
         await incrementAttempt(job.id);
         countedAttempts++;
@@ -198,11 +219,11 @@ export async function runT42({ now = new Date() } = {}) {
           }
         }
       } else {
-        // Either already counted today, or already escalated, or attemptCount >= 3 but handled above
         skipped++;
       }
       continue;
     }
+
     // Anything else falls through
     skipped++;
   }

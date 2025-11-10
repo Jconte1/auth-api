@@ -3,7 +3,7 @@ import prisma from "@/lib/prisma/prisma";
 import requireAuth from "../requireAuth.js/route";
 
 const CORS_HEADERS = {
-  "Access-Control-Allow-Origin": "https://mld-website-git-login-feature-jconte1s-projects.vercel.app", //
+  "Access-Control-Allow-Origin": "http://localhost:3000", //https://mld-website-git-login-feature-jconte1s-projects.vercel.app
   "Access-Control-Allow-Methods": "GET, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type, Authorization",
   // If you ever send cookies: "Access-Control-Allow-Credentials": "true",
