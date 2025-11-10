@@ -3,8 +3,8 @@ import prisma from '@/lib/prisma/prisma';
 import { startOfDayDenver } from '@/lib/time/denver';
 import { ensureJob, incrementAttempt, resetAttempts, closeJob } from './jobs';
 import { sendT42Email } from '@/lib/email/mailer';
-import { writeT42 } from '@/lib/acumatica/confirmations';
-
+import { writeT42 } from '@/lib/acumatica/escalations';
+import { writeT42EscalateNote } from '@/lib/acumatica/escalations';
 const PHASE = 'T42';
 const SEND_DAYS = new Set([42, 41, 40, 39]);
 

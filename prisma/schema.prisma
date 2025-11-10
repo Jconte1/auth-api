@@ -115,9 +115,7 @@ model ErpOrderSummary {
   buyerGroup   String?  @db.VarChar(64) @default("")
   lastSeenAt   DateTime @default(now())
   isActive     Boolean  @default(true)
-
-  isConfirmed     Boolean?  @default(false)
-  confirmedAt     DateTime?
+  noteId       String?  @db.VarChar(64) @default("")
 
   // Relations
   address      ErpOrderAddress?
@@ -192,7 +190,7 @@ model ErpOrderPayment {
   // convenient filters
   baid            String    @db.VarChar(64)
   orderNbr        String    @db.VarChar(64)
-  CustomerStatus  String    @default("Active") @db.VarChar(48)
+  status          String    @default("Active") @db.VarChar(48)
   orderTotal      Decimal?  @db.Decimal(18, 2)
   unpaidBalance   Decimal?  @db.Decimal(18, 2)
   terms           String    @db.VarChar(64)

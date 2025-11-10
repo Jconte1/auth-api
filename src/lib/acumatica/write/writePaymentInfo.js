@@ -49,9 +49,9 @@ export default async function writePaymentInfo(
 
     const orderTotal = optDec(val(row, "OrderTotal"), 2);
     const unpaidBalance = optDec(val(row, "UnpaidBalance"), 2);
-    const status = optStr(val(row, "CustomerStatus"))
+    const status = optStr(val(row, "Status"));
     const termsRaw = optStr(val(row, "Terms"));
-    const terms = normalizeTerms(termsRaw); // ensure non-null if schema requires it
+    const terms = normalizeTerms(termsRaw); 
 
     // If literally nothing to persist, skip (but still mapped)
     if (orderTotal == null && unpaidBalance == null && !terms) continue;

@@ -17,10 +17,10 @@ export default async function fetchDailySync(
         "OrderType", "OrderNbr", "CustomerID", "LastModified",
         "UnpaidBalance", "OrderTotal", "RequestedOn", "ShipVia", "Status",
         "DeliveryEmail", "AddressLine1", "AddressLine2", "City", "Country", "PostalCode", "State",
-        "LocationID", "JobName", "Terms"
+        "LocationID", "JobName", "Terms", "NoteID"
     ].join(",");
 
-    const custom = "Document.AttributeSITENUMBER,Document.AttributeOSCONTACT";
+   const custom = "Document.AttributeSITENUMBER, Document.AttributeOSCONTACT, Document.AttributeTHREEDAY, Document.AttributeTWOWEEK, Document.AttributeSIXWEEKFF, Document.AttributeCONFIRMVIA, Document.AttributeCONFIRMWTH,Document.AttributeBUYERGROUP";
 
     const baidLit = String(baid).replace(/'/g, "''");
     const filter = [

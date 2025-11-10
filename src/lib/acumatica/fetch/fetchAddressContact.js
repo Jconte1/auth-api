@@ -21,7 +21,7 @@ export default async function fetchAddressContact(
     "DeliveryEmail","JobName","ShipVia",
   ].join(",");
 
-  const custom = "Document.AttributeSITENUMBER,Document.AttributeOSCONTACT";
+  const custom = "Document.AttributeSITENUMBER, Document.AttributeOSCONTACT, Document.AttributeTHREEDAY, Document.AttributeTWOWEEK, Document.AttributeSIXWEEKFF, Document.AttributeCONFIRMVIA, Document.AttributeCONFIRMWTH";
 
   const fetchOnce = async (filter, skip = 0) => {
     const params = new URLSearchParams();

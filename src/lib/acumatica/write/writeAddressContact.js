@@ -68,6 +68,39 @@ export default async function writeAddressContact(
         "OsContact",
         "OSCONTACT",
       ])),
+      confirmedVia: optStr(firstVal(row, [
+        "custom.Document.AttributeCONFIRMVIA",
+        "Document.AttributeCONFIRMVIA",
+        "confirmVia",
+        "CONFIRMVIA",
+      ])),
+      confirmedWith: optStr(firstVal(row, [
+        "custom.Document.AttributeCONFIRMWTH",
+        "Document.AttributeCONFIRMWTH",
+        "confirmWith",
+        "CONFIRMWITH",
+      ])),
+      threeDaySent: optBool(firstVal(row, [
+        "custom.Document.AttributeTHREEDAY",
+        "Document.AttributeTHREEDAY",
+        "threeDay",
+        "ThreeDay",
+        "THREEDAY",
+      ])),
+      tenDaySent: optBool(firstVal(row, [
+        "custom.Document.AttributeTWOWEEK",
+        "Document.AttributeTWOWEEK",
+        "twoWeek",
+        "TwoWeek",
+        "TWOWEEK",
+      ])),
+      sixWeekFailed: optBool(firstVal(row, [
+        "custom.Document.AttributeSIXWEEKFF",
+        "Document.AttributeSIXWEEKFF",
+        "sixWeek",
+        "SixWeek",
+        "SIXWEEK",
+      ])),
     };
 
     if (Object.values(address).some(v => v !== null)) {
@@ -154,6 +187,16 @@ function optStr(v) {
   if (typeof v === "object") return null; // avoid "[object Object]"
   const s = String(v).trim();
   return s ? s : null;
+}
+function optBool(v) {
+  if (v == null) return null;
+  if (typeof v === "boolean") return v;
+  const s = String(v).trim().toLowerCase();
+  if (["true", "yes", "y", "1"].includes(s)) return true;
+  if (["false", "no", "n", "0"].includes(s)) return false;
+  // Acumatica sometimes returns empty string for unchecked
+  if (s === "") return false;
+  return null; // if it’s some unexpected value, don’t write junk
 }
 async function runWithConcurrency(items, limit, worker) {
   let i = 0;

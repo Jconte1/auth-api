@@ -40,6 +40,7 @@ export default async function fetchOrderSummaries(
     "ShipVia",
     "JobName",
     "CustomerName",
+    "NoteID",
   ].join(",");
 
   const custom = "Document.AttributeBUYERGROUP";
@@ -101,5 +102,7 @@ export default async function fetchOrderSummaries(
   }
 
   console.log(`[fetchOrderSummaries] baid=${baid} totalRows=${all.length}`);
+  
+
   return all;
 }

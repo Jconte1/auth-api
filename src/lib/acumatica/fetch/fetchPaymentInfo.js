@@ -11,7 +11,7 @@ export default async function fetchPaymentInfo(
   {
     orderNbrs = [],
     chunkSize = Number(process.env.PAYMENTS_CHUNK_SIZE || 20),
-    pageSize = 500,          // safety — though we don't expect paging for chunks
+    pageSize = 500,          
   } = {}
 ) {
   if (!Array.isArray(orderNbrs) || !orderNbrs.length) {

@@ -20,7 +20,7 @@ const getBearer = (h) => {
 /** Verbose auth that returns {ok, reason} and logs safely */
 function authOkVerbose(req) {
   const headerAuth = req.headers.get("authorization") || "";
-  headerToken = getBearer(headerAuth);
+  const headerToken = getBearer(headerAuth);
 
   const { searchParams } = new URL(req.url);
   const queryToken = (searchParams.get("token") || "").trim();

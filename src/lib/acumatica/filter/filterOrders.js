@@ -16,6 +16,8 @@ export default function shapeAndFilter(rawRows) {
         const jobName = row?.JobName?.value ?? row?.JobName ?? null;
         const customerName = row?.CustomerName?.value ?? row?.CustomerName ?? null;    // ← added
         const warehouse = row?.warehouse?.value ?? row?.warehouse ?? "";
+        const buyerGroup = row?.custom?.Document?.AttributeBUYERGROUP?.value ?? null;
+        const noteId = row?.NoteID?.value ?? null;
         if (!orderNbr || !status || !locationId || !requestedOnRaw) {
             droppedMissing++; continue;
         }
@@ -33,6 +35,8 @@ export default function shapeAndFilter(rawRows) {
             jobName: jobName != null ? String(jobName) : null,
             customerName: customerName != null ? String(customerName) : null,
             warehouse: warehouse != "" ? String(warehouse) : "",       // ← added
+            buyerGroup,
+            noteId,
         });
     }
 

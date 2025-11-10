@@ -28,7 +28,13 @@ export async function upsertOrderSummariesForBAID(
     const shipVia = firstVal(row, ["ShipVia", "shipVia"]);
     const jobName = firstVal(row, ["JobName", "jobName"]);
     const customerName = firstVal(row, ["CustomerName", "customerName"]);
-    const buyerGroup = firstVal(row, ["Document.AttributeBUYERGROUP"]);
+    const buyerGroup = firstVal(row, 
+      ["custom.Document.AttributeBUYERGROUP",
+        "Document.AttributeBUYERGROUP",
+        "buyerGroup",
+        "BuyerGroup"
+      ]);
+    const noteId = firstVal(row, ["NoteID", "noteId", "noteID"]);
 
     const requestedOn = toDate(requested);
     if (!orderNbr || !status || !requestedOn) continue;
@@ -41,11 +47,12 @@ export async function upsertOrderSummariesForBAID(
       shipVia: optStr(shipVia),
       jobName: optStr(jobName),
       customerName: optStr(customerName),
-      buyerGroup: optStr(buyerGroup)
+      buyerGroup: optStr(buyerGroup),
+      noteId: optStr(noteId),
     });
   }
   console.log(`[upsertOrderSummaries] baid=${baid} incoming=${incoming.length}`);
-
+  
   // Read existing within window
   const existing = await prisma.erpOrderSummary.findMany({
     where: { baid, deliveryDate: { gte: cutoff } },
@@ -58,6 +65,7 @@ export async function upsertOrderSummariesForBAID(
       jobName: true,
       customerName: true,
       buyerGroup: true,
+      noteId: true,
     },
   });
   const byNbr = new Map(existing.map(r => [r.orderNbr, r]));
@@ -77,7 +85,8 @@ export async function upsertOrderSummariesForBAID(
         (r.shipVia || null) !== (prev.shipVia || null) ||
         (r.jobName || null) !== (prev.jobName || null) ||
         (r.customerName || null) !== (prev.customerName || null) ||
-        (r.buyerGroup || null) !== (prev.buyerGroup || null);
+        (r.buyerGroup || null) !== (prev.buyerGroup || null) ||
+        (r.noteId || null) !== (prev.noteId || null);
       if (changed) toUpdate.push(r);
     }
   }
@@ -97,7 +106,8 @@ export async function upsertOrderSummariesForBAID(
         deliveryDate: r.deliveryDate,
         lastSeenAt: now,
         isActive: true,
-        buyerGroup: r.buyerGroup,
+        buyerGroup: r.buyerGroup?? "",
+        noteId: r.noteId?? "",
       })),
       skipDuplicates: true,
     });
@@ -118,7 +128,8 @@ export async function upsertOrderSummariesForBAID(
           customerName: r.customerName ?? "",
           shipVia: r.shipVia ?? null,
           deliveryDate: r.deliveryDate,
-          buyerGroup: r.buyerGroup,
+          buyerGroup: r.buyerGroup ?? "",
+          noteId: r.noteId ?? "",
           lastSeenAt: now,
           isActive: true,
         },
