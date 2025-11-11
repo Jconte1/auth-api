@@ -1,7 +1,7 @@
 // backend: app/api/orders/route.js
 import prisma from '@/lib/prisma/prisma';
 
-const ORIGIN = 'http://localhost:3000'; //https://mld-website-git-login-feature-jconte1s-projects.vercel.app
+const ORIGIN = 'https://mld-website-git-login-feature-jconte1s-projects.vercel.app'; //
 const baseHeaders = {
   'Access-Control-Allow-Origin': ORIGIN,
   'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
