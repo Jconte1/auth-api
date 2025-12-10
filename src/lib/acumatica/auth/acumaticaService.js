@@ -70,7 +70,7 @@ class AcumaticaService {
   // PUT request method
   async put(entityName, entity) {
     try {
-      const url = `${this.baseUrl}/entity/CustomStorageDetailsEndpoint/23.200.001/${entityName}`;
+      const url = `${this.baseUrl}/entity/CustomEndpoint/24.200.001/${entityName}`;
       console.log("Making PUT request to:", url);
       console.log("Payload:", JSON.stringify(entity, null, 2));
 
