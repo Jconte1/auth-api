@@ -17,59 +17,6 @@ function rateLimit(req, limit = 10, windowMs = 60_000) {
   return bucket.length <= limit;
 }
 
-// --- reCAPTCHA v3 verification helper ---
-async function verifyRecaptcha(token) {
-  try {
-    if (!token) {
-      console.warn('reCAPTCHA: missing token');
-      return false;
-    }
-
-    const secret = process.env.RECAPTCHA_SECRET_KEY;
-    if (!secret) {
-      console.warn('reCAPTCHA: RECAPTCHA_SECRET_KEY is not set');
-      return false;
-    }
-
-    const params = new URLSearchParams();
-    params.append('secret', secret);
-    params.append('response', token);
-
-    const res = await fetch(
-      'https://www.google.com/recaptcha/api/siteverify',
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
-        body: params.toString(),
-      }
-    );
-
-    if (!res.ok) {
-      console.error(
-        'reCAPTCHA verify HTTP error:',
-        res.status,
-        res.statusText
-      );
-      return false;
-    }
-
-    const data = await res.json();
-    console.log('reCAPTCHA verify response:', data);
-
-    if (!data.success) {
-      console.warn('reCAPTCHA error codes:', data['error-codes']);
-      return false;
-    }
-
-    return true;
-  } catch (err) {
-    console.error('reCAPTCHA verify error:', err);
-    return false;
-  }
-}
-
 // --- Build minimal cart payload for DB (price, modelNumber, quantity, imageUrl, description) ---
 function buildCartSnapshot(cartItems = []) {
   return cartItems.map((item) => {
@@ -83,7 +30,7 @@ function buildCartSnapshot(cartItems = []) {
       null;
 
     const acumaticaSku =
-    p.acumaticaSku ??
+      p.acumaticaSku ??
       p.product?.acumaticaSku ??
       p.data?.acumaticaSku ??
       null;
@@ -147,7 +94,8 @@ export async function OPTIONS() {
   return new Response(null, {
     status: 204,
     headers: {
-      'Access-Control-Allow-Origin': 'https://mld-website-git-closeout-store-jconte1s-projects.vercel.app',
+      'Access-Control-Allow-Origin':
+        'https://mld-website-git-closeout-store-jconte1s-projects.vercel.app',
       'Access-Control-Allow-Methods': 'POST, OPTIONS',
       'Access-Control-Allow-Headers': 'Content-Type, Authorization',
     },
@@ -162,15 +110,9 @@ export async function POST(req) {
     }
 
     const body = await req.json();
-    const { recaptchaToken, contact, cartItems } = body || {};
+    const { contact, cartItems } = body || {};
 
-    // 2) Verify reCAPTCHA
-    const recaptchaOk = await verifyRecaptcha(recaptchaToken);
-    if (!recaptchaOk) {
-      return error('reCAPTCHA verification failed', 400);
-    }
-
-    // 3) Basic validation
+    // 2) Basic validation
     if (!contact || typeof contact !== 'object') {
       return error('Missing contact information', 400);
     }
@@ -222,7 +164,7 @@ export async function POST(req) {
     // 🔎 Build minimal cart snapshot (only what we care about)
     const cartSnapshot = buildCartSnapshot(cartItems);
 
-    // 4) Create QuoteRequest in DB
+    // 3) Create QuoteRequest in DB
     const quote = await prisma.quoteRequest.create({
       data: {
         firstName: firstName.trim(),
@@ -251,7 +193,7 @@ export async function POST(req) {
       zip: String(zip).trim(),
     };
 
-    // 5) Send RFQ summary email immediately (no magic link)
+    // 4) Send RFQ summary email immediately (no magic link)
     try {
       const info = await sendAuthEmail({
         to: normalizedEmail,
@@ -273,7 +215,7 @@ export async function POST(req) {
       return error('Quote saved but summary email could not be sent.', 500);
     }
 
-    // 6) Respond WITH quoteId so frontend can redirect
+    // 5) Respond WITH quoteId so frontend can redirect
     return success(
       {
         message:
