@@ -17,6 +17,46 @@ function rateLimit(req, limit = 10, windowMs = 60_000) {
   return bucket.length <= limit;
 }
 
+// --- reCAPTCHA v2 server-side verification ---
+async function verifyRecaptchaV2(token, remoteip) {
+  const secret = process.env.RECAPTCHA_SECRET_KEY;
+  if (!secret) {
+    return { ok: false, reason: 'Missing RECAPTCHA_SECRET_KEY' };
+  }
+
+  if (!token || typeof token !== 'string') {
+    return { ok: false, reason: 'Missing reCAPTCHA token' };
+  }
+
+  try {
+    const params = new URLSearchParams();
+    params.set('secret', secret);
+    params.set('response', token);
+    if (remoteip && remoteip !== 'unknown') params.set('remoteip', remoteip);
+
+    const res = await fetch('https://www.google.com/recaptcha/api/siteverify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: params.toString(),
+    });
+
+    const data = await res.json().catch(() => null);
+
+    if (!res.ok || !data) {
+      return { ok: false, reason: 'reCAPTCHA verify request failed' };
+    }
+
+    // v2 returns: { success: boolean, challenge_ts, hostname, "error-codes": [] }
+    if (data.success !== true) {
+      return { ok: false, reason: 'reCAPTCHA not successful', data };
+    }
+
+    return { ok: true, data };
+  } catch (e) {
+    return { ok: false, reason: 'reCAPTCHA verify threw', error: e };
+  }
+}
+
 // --- Build minimal cart payload for DB (price, modelNumber, quantity, imageUrl, description) ---
 function buildCartSnapshot(cartItems = []) {
   return cartItems.map((item) => {
@@ -110,7 +150,21 @@ export async function POST(req) {
     }
 
     const body = await req.json();
-    const { contact, cartItems } = body || {};
+    const { contact, cartItems, captchaToken } = body || {};
+
+    // 1.5) reCAPTCHA required (server-side verification)
+    const ip =
+      req.headers.get('x-forwarded-for')?.split(',')[0].trim() || 'unknown';
+
+    const captchaCheck = await verifyRecaptchaV2(captchaToken, ip);
+    if (!captchaCheck.ok) {
+      // if secret is missing, that's a server misconfig
+      if (captchaCheck.reason === 'Missing RECAPTCHA_SECRET_KEY') {
+        console.error('reCAPTCHA misconfigured:', captchaCheck);
+        return error('Server misconfiguration (reCAPTCHA).', 500);
+      }
+      return error('reCAPTCHA verification failed.', 400);
+    }
 
     // 2) Basic validation
     if (!contact || typeof contact !== 'object') {

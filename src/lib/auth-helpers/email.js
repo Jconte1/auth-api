@@ -199,7 +199,7 @@ export default async function sendAuthEmail({
                       style="display:block;margin:0 auto 16px auto;max-width:140px;height:auto;"
                     />
                     <h1 style="margin:0 0 8px 0;font-size:24px;font-weight:700;color:#111827;">
-                      Thank you for your order.
+                      Thank you for your quote request.
                     </h1>
                     <p style="margin:0 0 8px 0;font-size:14px;color:#4b5563;">
                       Our team will review availability, pricing, and delivery options and follow up with you shortly.
@@ -212,10 +212,10 @@ export default async function sendAuthEmail({
                   <td style="padding:16px 32px 24px 32px;">
                     <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;">
                       <tr valign="top">
-                        <!-- ORDER SUMMARY (left) -->
+                        <!-- Quote SUMMARY (left) -->
                         <td width="60%" style="padding-right:16px;">
                           <h2 style="margin:0 0 8px 0;font-size:16px;font-weight:600;color:#111827;">
-                            Order Summary
+                            Quote Summary
                           </h2>
                           <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;">
                             ${lineItemsHtml}
@@ -225,7 +225,7 @@ export default async function sendAuthEmail({
                         <!-- TOTALS + SHIPPING (right) -->
                         <td width="40%" style="padding-left:16px;border-left:1px solid #e5e7eb;">
                           <h2 style="margin:0 0 8px 0;font-size:16px;font-weight:600;color:#111827;">
-                            Order Total
+                            Quote Total
                           </h2>
                           <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;font-size:13px;color:#374151;">
                             <tr>
@@ -308,7 +308,7 @@ Shipping / pickup details will be confirmed by our outlet team.`;
 
     text = `Hello ${safeName},
 
-Thank you for your order.
+Thank you for your quote.
 
 Our team will review availability, pricing, and delivery options and follow up with you shortly.
 
@@ -317,10 +317,10 @@ If you need assistance, please call our Outlet Center at 801-466-0990.
 
 
 
-ORDER SUMMARY
+QUOTE SUMMARY
 ${linesText}
 
-ORDER TOTAL
+QUOTE TOTAL
 Subtotal: ${subtotalFormatted}
 Tax: TBD
 Shipping: TBD
