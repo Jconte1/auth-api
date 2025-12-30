@@ -135,7 +135,7 @@ export async function OPTIONS() {
     status: 204,
     headers: {
       'Access-Control-Allow-Origin':
-        'https://www.mld.com/',
+        'https://www.mld.com',
       'Access-Control-Allow-Methods': 'POST, OPTIONS',
       'Access-Control-Allow-Headers': 'Content-Type, Authorization',
     },

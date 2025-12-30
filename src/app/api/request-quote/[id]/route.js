@@ -27,7 +27,7 @@ export async function GET(req, context) {
       status: 200,
       headers: {
         'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': 'https://www.mld.com/', 
+        'Access-Control-Allow-Origin': 'https://www.mld.com', 
       },
     });
   } catch (err) {
