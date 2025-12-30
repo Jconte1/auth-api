@@ -27,7 +27,7 @@ export async function GET(req, context) {
       status: 200,
       headers: {
         'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': 'mld-website-git-closeout-store-jconte1s-projects.vercel.app', // ✅ Helps cross-origin fetch
+        'Access-Control-Allow-Origin': 'https://www.mld.com/', 
       },
     });
   } catch (err) {

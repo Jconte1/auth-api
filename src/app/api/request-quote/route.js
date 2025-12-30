@@ -135,7 +135,7 @@ export async function OPTIONS() {
     status: 204,
     headers: {
       'Access-Control-Allow-Origin':
-        'https://mld-website-git-closeout-store-jconte1s-projects.vercel.app',
+        'https://www.mld.com/',
       'Access-Control-Allow-Methods': 'POST, OPTIONS',
       'Access-Control-Allow-Headers': 'Content-Type, Authorization',
     },
