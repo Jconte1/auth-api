@@ -1,35 +1,141 @@
-import nodemailer from 'nodemailer';
+import nodemailer from "nodemailer";
+
+/**
+ * NOTE:
+ * We keep this import so you don't have to change any other files that may expect it,
+ * but we no longer use nodemailer transporters here.
+ * (Only the client/tenant/secret auth is swapped to Microsoft Graph OAuth.)
+ */
 
 const {
-  SMTP_HOST,
-  SMTP_PORT,
+  // Existing vars (DO NOT CHANGE)
   AUTO_EMAIL,
-  AUTO_EMAIL_PASSWORD,
   FRONTEND_URL,
-  APP_NAME = 'MLD',
+  APP_NAME = "MLD",
+
+  // New Graph OAuth vars (client credentials)
+  MS_TENANT_ID,
+  MS_CLIENT_ID,
+  MS_CLIENT_SECRET,
+  MS_SENDER_EMAIL, // optional; if not set we use AUTO_EMAIL
 } = process.env;
 
-// Singleton pattern for transporter in dev to prevent multiple instances
-let transporter = global.transporter;
+// -------------------- Microsoft Graph OAuth (client credentials) --------------------
 
-if (!transporter) {
-  transporter = nodemailer.createTransport({
-    host: SMTP_HOST,
-    port: parseInt(SMTP_PORT, 10),
-    secure: false,
-    auth: {
-      user: AUTO_EMAIL,
-      pass: AUTO_EMAIL_PASSWORD,
-    },
-    tls: {
-      rejectUnauthorized: false,
-    },
+let graphTokenCache = {
+  accessToken: null,
+  expiresAtMs: 0,
+};
+
+async function getGraphAccessToken() {
+  const tenantId = MS_TENANT_ID;
+  const clientId = MS_CLIENT_ID;
+  const clientSecret = MS_CLIENT_SECRET;
+
+  if (!tenantId) throw new Error("Missing MS_TENANT_ID env var");
+  if (!clientId) throw new Error("Missing MS_CLIENT_ID env var");
+  if (!clientSecret) throw new Error("Missing MS_CLIENT_SECRET env var");
+
+  // Use cached token if still valid (with a small buffer)
+  const now = Date.now();
+  if (graphTokenCache.accessToken && now < graphTokenCache.expiresAtMs - 60_000) {
+    return graphTokenCache.accessToken;
+  }
+
+  const tokenUrl = `https://login.microsoftonline.com/${encodeURIComponent(
+    tenantId
+  )}/oauth2/v2.0/token`;
+
+  const body = new URLSearchParams();
+  body.set("client_id", clientId);
+  body.set("client_secret", clientSecret);
+  body.set("grant_type", "client_credentials");
+  body.set("scope", "https://graph.microsoft.com/.default");
+
+  const res = await fetch(tokenUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: body.toString(),
+    cache: "no-store",
   });
 
-  if (process.env.NODE_ENV !== 'production') {
-    global.transporter = transporter;
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Graph token fetch failed: ${res.status} ${res.statusText} ${text}`);
   }
+
+  const json = await res.json();
+  const accessToken = json.access_token;
+  const expiresInSec = Number(json.expires_in || 0);
+
+  if (!accessToken) {
+    throw new Error("Graph token fetch failed: missing access_token in response");
+  }
+
+  graphTokenCache.accessToken = accessToken;
+  graphTokenCache.expiresAtMs = Date.now() + expiresInSec * 1000;
+
+  return accessToken;
 }
+
+async function sendMailViaGraph({ fromMailbox, fromDisplay, to, subject, html, text }) {
+  if (!fromMailbox) throw new Error("Missing fromMailbox for Graph sendMail");
+  if (!to) throw new Error("Missing 'to' email");
+  if (!subject) throw new Error("Missing email subject");
+
+  const token = await getGraphAccessToken();
+
+  // Graph supports either HTML or Text for body. Prefer HTML when available.
+  const bodyContentType = html ? "HTML" : "Text";
+  const bodyContent = html || text || "";
+
+  const payload = {
+    message: {
+      subject,
+      body: {
+        contentType: bodyContentType,
+        content: bodyContent,
+      },
+      // Keep the email address the same as before (AUTO_EMAIL), but Graph sends "as" the mailbox.
+      // We'll also set a friendly From display name to match prior behavior.
+      from: {
+        emailAddress: {
+          address: fromMailbox,
+          name: fromDisplay || undefined,
+        },
+      },
+      toRecipients: [
+        {
+          emailAddress: { address: to },
+        },
+      ],
+    },
+    saveToSentItems: true,
+  };
+
+  const url = `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(
+    fromMailbox
+  )}/sendMail`;
+
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+    cache: "no-store",
+  });
+
+  if (!res.ok) {
+    const errText = await res.text().catch(() => "");
+    throw new Error(`Graph sendMail failed: ${res.status} ${res.statusText} ${errText}`);
+  }
+
+  return { ok: true };
+}
+
+// -------------------- Original function (unchanged content / recipients) --------------------
 
 /**
  * Send verification, password reset, OTP, RFQ confirmation, or RFQ summary email.
@@ -47,14 +153,14 @@ export default async function sendAuthEmail({
   to,
   name,
   token,
-  type = 'verify',
+  type = "verify",
   quoteId,
   cart,
   shipping,
 }) {
   let link, subject, html, text;
 
-  if (type === 'reset') {
+  if (type === "reset") {
     // Password reset via email link (not used for OTP flow)
     link = `${FRONTEND_URL}/auth/reset-password?token=${encodeURIComponent(
       token
@@ -63,113 +169,99 @@ export default async function sendAuthEmail({
     html = `
       <div style="font-family:sans-serif">
         <h2>Password Reset Request for ${APP_NAME}</h2>
-        <p>Hello ${name || 'there'},</p>
+        <p>Hello ${name || "there"},</p>
         <p>You requested a password reset. Click the button below to set a new password:</p>
         <p><a href="${link}" style="background:#0050b3;color:#fff;padding:12px 24px;text-decoration:none;border-radius:6px;display:inline-block;">Reset Password</a></p>
         <p>This link is valid for 1 hour. If you did not request this, you can safely ignore this email.</p>
         <p>— The ${APP_NAME} Team</p>
       </div>
     `;
-    text = `Hello ${name || 'there'},\n\nYou requested a password reset for your ${APP_NAME} account.\nReset your password here: ${link}\n\nIf you did not request this, you can ignore this email.\n\n— The ${APP_NAME} Team`;
-
-  } else if (type === 'otp') {
+    text = `Hello ${name || "there"},\n\nYou requested a password reset for your ${APP_NAME} account.\nReset your password here: ${link}\n\nIf you did not request this, you can ignore this email.\n\n— The ${APP_NAME} Team`;
+  } else if (type === "otp") {
     // One-time code for password reset (shown in-app)
     subject = `Your ${APP_NAME} password reset code`;
     html = `
       <div style="font-family:sans-serif">
         <h2>${APP_NAME} Password Reset Code</h2>
-        <p>Hello ${name || 'there'},</p>
+        <p>Hello ${name || "there"},</p>
         <p>Your one-time password (OTP) to reset your account is:</p>
         <div style="font-size:2rem;font-weight:bold;letter-spacing:6px;margin:22px 0 18px 0;">${token}</div>
         <p>This code is valid for 10 minutes. If you did not request this, you can ignore this email.</p>
         <p>— The ${APP_NAME} Team</p>
       </div>
     `;
-    text = `Hello ${name || 'there'},\n\nYour OTP for resetting your ${APP_NAME} password is: ${token}\n\nThis code is valid for 10 minutes.\nIf you did not request this, you can ignore this email.\n\n— The ${APP_NAME} Team`;
-
-  } else if (type === 'rfq-summary') {
+    text = `Hello ${name || "there"},\n\nYour OTP for resetting your ${APP_NAME} password is: ${token}\n\nThis code is valid for 10 minutes.\nIf you did not request this, you can ignore this email.\n\n— The ${APP_NAME} Team`;
+  } else if (type === "rfq-summary") {
     // Outlet quote "thank you" / summary email (no magic link)
-    const safeName = name || 'there';
-    
+    const safeName = name || "there";
 
     const items = Array.isArray(cart) ? cart : [];
 
     const formatMoney = (value) => {
-      if (value == null || isNaN(value)) return 'TBD';
+      if (value == null || isNaN(value)) return "TBD";
       return `$${Number(value).toFixed(2)}`;
     };
 
     let subtotal = 0;
     const lineItemsHtml = items.length
       ? items
-        .map((item) => {
-          // 🔧 IMPORTANT: prefer modelNumber now
-          const sku =
-            item.modelNumber ||
-            item.sku ||
-            item.acumaticaSku ||
-            'Unknown Model';
+          .map((item) => {
+            // 🔧 IMPORTANT: prefer modelNumber now
+            const sku = item.modelNumber || item.sku || item.acumaticaSku || "Unknown Model";
 
-          const description =
-            item.description || item.name || 'Item description';
-          const qty = item.quantity ?? 1;
-          const price =
-            item.price != null ? Number(item.price) : null;
-          const lineTotal =
-            price != null ? price * Number(qty || 1) : null;
+            const description = item.description || item.name || "Item description";
+            const qty = item.quantity ?? 1;
+            const price = item.price != null ? Number(item.price) : null;
+            const lineTotal = price != null ? price * Number(qty || 1) : null;
 
-          if (price != null) {
-            subtotal += lineTotal;
-          }
+            if (price != null) {
+              subtotal += lineTotal;
+            }
 
-          const imageUrl =
-            item.imageUrl || item.thumbnailUrl || item.image || '';
+            const imageUrl = item.imageUrl || item.thumbnailUrl || item.image || "";
 
-          return `
+            return `
               <tr>
                 <td style="padding:8px 0;border-bottom:1px solid #eee;">
                   <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;">
                     <tr>
-                      ${imageUrl
-              ? `<td width="64" style="padding-right:10px;vertical-align:top;">
+                      ${
+                        imageUrl
+                          ? `<td width="64" style="padding-right:10px;vertical-align:top;">
                                <img src="${imageUrl}" alt="${description}" width="64" height="64" style="display:block;border-radius:4px;object-fit:cover;" />
                              </td>`
-              : ''
-            }
+                          : ""
+                      }
                       <td style="vertical-align:top;font-size:14px;color:#111827;">
                         <div style="font-weight:600;">${description}</div>
                         <div style="font-size:12px;color:#6b7280;margin-top:2px;">Model: ${sku}</div>
                         <div style="font-size:12px;color:#6b7280;margin-top:4px;">
-                          Qty: ${qty}${price != null
-              ? ` &nbsp;•&nbsp; Unit: ${formatMoney(price)}`
-              : ''
-            }
+                          Qty: ${qty}${
+                            price != null ? ` &nbsp;•&nbsp; Unit: ${formatMoney(price)}` : ""
+                          }
                         </div>
                       </td>
                       <td style="vertical-align:top;text-align:right;font-size:14px;color:#111827;font-weight:600;white-space:nowrap;">
-                        ${lineTotal != null
-              ? formatMoney(lineTotal)
-              : 'TBD'
-            }
+                        ${lineTotal != null ? formatMoney(lineTotal) : "TBD"}
                       </td>
                     </tr>
                   </table>
                 </td>
               </tr>
             `;
-        })
-        .join('')
+          })
+          .join("")
       : `<tr><td style="padding:12px 0;font-size:14px;color:#4b5563;">(No items were attached to this quote.)</td></tr>`;
 
     const shippingHtml = shipping
       ? `
         <p style="margin:0 0 4px 0;font-size:14px;color:#111827;">${shipping.name || safeName}</p>
         <p style="margin:0 0 2px 0;font-size:13px;color:#4b5563;">
-          ${shipping.line1 || ''}
-          ${shipping.line2 ? `<br/>${shipping.line2}` : ''}
+          ${shipping.line1 || ""}
+          ${shipping.line2 ? `<br/>${shipping.line2}` : ""}
         </p>
         <p style="margin:0;font-size:13px;color:#4b5563;">
-          ${shipping.city || ''}${shipping.city ? ',' : ''} ${shipping.state || ''} ${shipping.zip || ''}
+          ${shipping.city || ""}${shipping.city ? "," : ""} ${shipping.state || ""} ${shipping.zip || ""}
         </p>
       `
       : `
@@ -179,8 +271,7 @@ export default async function sendAuthEmail({
         </p>
       `;
 
-    const subtotalFormatted =
-      subtotal > 0 ? formatMoney(subtotal) : 'TBD';
+    const subtotalFormatted = subtotal > 0 ? formatMoney(subtotal) : "TBD";
 
     subject = `${APP_NAME} Quote summary`;
 
@@ -204,7 +295,6 @@ export default async function sendAuthEmail({
                     <p style="margin:0 0 8px 0;font-size:14px;color:#4b5563;">
                       Our team will review availability, pricing, and delivery options and follow up with you shortly.
                     </p>
-                   
                   </td>
                 </tr>
 
@@ -281,28 +371,21 @@ export default async function sendAuthEmail({
     // Plain-text version
     const linesText = items.length
       ? items
-        .map((item, idx) => {
-          const sku =
-            item.modelNumber ||
-            item.sku ||
-            item.acumaticaSku ||
-            'Unknown Model';
+          .map((item, idx) => {
+            const sku = item.modelNumber || item.sku || item.acumaticaSku || "Unknown Model";
 
-          const description =
-            item.description || item.name || 'Item description';
-          const qty = item.quantity ?? 1;
-          const price =
-            item.price != null ? Number(item.price).toFixed(2) : 'TBD';
-          return `${idx + 1}. ${description} (Model: ${sku}) — Qty: ${qty} — Unit: ${price}`;
-        })
-        .join('\n')
-      : '(No items were attached to this quote.)';
+            const description = item.description || item.name || "Item description";
+            const qty = item.quantity ?? 1;
+            const price = item.price != null ? Number(item.price).toFixed(2) : "TBD";
+            return `${idx + 1}. ${description} (Model: ${sku}) — Qty: ${qty} — Unit: ${price}`;
+          })
+          .join("\n")
+      : "(No items were attached to this quote.)";
 
     const shippingText = shipping
       ? `${shipping.name || safeName}
-${shipping.line1 || ''}${shipping.line2 ? `, ${shipping.line2}` : ''}
-${shipping.city || ''}${shipping.city ? ',' : ''} ${shipping.state || ''} ${shipping.zip || ''
-      }`
+${shipping.line1 || ""}${shipping.line2 ? `, ${shipping.line2}` : ""}
+${shipping.city || ""}${shipping.city ? "," : ""} ${shipping.state || ""} ${shipping.zip || ""}`
       : `${safeName}
 Shipping / pickup details will be confirmed by our outlet team.`;
 
@@ -330,32 +413,38 @@ SHIPPING INFO
 ${shippingText}
 
 Thank you for choosing ${APP_NAME}.`;
-
   } else {
     // Account verification (default)
-    link = `${FRONTEND_URL}/auth/verify?token=${encodeURIComponent(
-      token
-    )}&email=${encodeURIComponent(to)}`;
+    link = `${FRONTEND_URL}/auth/verify?token=${encodeURIComponent(token)}&email=${encodeURIComponent(
+      to
+    )}`;
     subject = `Verify your ${APP_NAME} account`;
     html = `
       <div style="font-family:sans-serif">
-        <h2>Welcome to ${APP_NAME}, ${name || 'there'}!</h2>
+        <h2>Welcome to ${APP_NAME}, ${name || "there"}!</h2>
         <p>To verify your email address and activate your account, please click the button below:</p>
         <p><a href="${link}" style="background:#0050b3;color:#fff;padding:12px 24px;text-decoration:none;border-radius:6px;display:inline-block;">Verify Email</a></p>
         <p>If you did not create this account, you can ignore this email.</p>
         <p>— The ${APP_NAME} Team</p>
       </div>
     `;
-    text = `Welcome to ${APP_NAME}, ${name || 'there'}!\n\nPlease verify your email by visiting the following link:\n${link}\n\nIf you did not create this account, you can ignore this email.\n\n— The ${APP_NAME} Team`;
+    text = `Welcome to ${APP_NAME}, ${name || "there"}!\n\nPlease verify your email by visiting the following link:\n${link}\n\nIf you did not create this account, you can ignore this email.\n\n— The ${APP_NAME} Team`;
   }
 
-  const mailOptions = {
-    from: `"${APP_NAME} Team" <${AUTO_EMAIL}>`,
+  // Keep the "from" email/address exactly as before.
+  const fromAddress = AUTO_EMAIL;
+  const fromDisplay = `${APP_NAME} Team`;
+
+  // Send via Graph using app-only auth
+  // (MS_SENDER_EMAIL lets you explicitly choose the mailbox to send as; defaults to AUTO_EMAIL)
+  const fromMailbox = MS_SENDER_EMAIL || fromAddress;
+
+  return sendMailViaGraph({
+    fromMailbox,
+    fromDisplay,
     to,
     subject,
     html,
     text,
-  };
-
-  return transporter.sendMail(mailOptions);
+  });
 }
